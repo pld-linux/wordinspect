@@ -2,11 +2,11 @@ Summary:	GTK+ frontend for dict
 Summary(pl):	Nak³adka do dict w GTK+
 Name:		wordinspect
 Version:	0.1a
-Release:	1
+Release:	2
 License:	GPL v2
 Group:		Applications/Dictionaries
 Source0:	http://www.suspectclass.com/~sgifford/wordinspect/files/%{name}-%{version}.tar.gz
-Patch0:		%{name}.patch
+Patch0:		%{name}_0.1a-8.diff
 URL:		http://www.tir.com/~sgifford/wordinspect/
 BuildRequires:	autoconf
 BuildRequires:	automake
