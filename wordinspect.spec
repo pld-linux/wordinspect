@@ -8,6 +8,7 @@ Group:		Applications/Dictionaries
 Source0:	http://www.suspectclass.com/~sgifford/wordinspect/files/%{name}-%{version}.tar.gz
 # Source0-md5:	2c7505e5360b36f30afcb04cf9710ecf
 Patch0:		%{name}_0.1a-8.diff
+Patch1:		%{name}-gcc33_multiline_string.patch
 URL:		http://www.tir.com/~sgifford/wordinspect/
 BuildRequires:	autoconf
 BuildRequires:	automake
@@ -36,6 +37,7 @@ Window.
 %prep
 %setup -q
 %patch0 -p1
+%patch1 -p1
 
 %build
 rm -f missing
