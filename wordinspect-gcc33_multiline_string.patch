@@ -1,0 +1,29 @@
+--- wordinspect-0.1a/gladesig.c~	2004-04-07 14:28:57.845132208 +0200
++++ wordinspect-0.1a/gladesig.c	2004-04-07 14:32:19.835425016 +0200
+@@ -84,16 +84,16 @@
+ void usage(char *progname)
+ {
+   printf("Usage:\n     %s [--help|--version] [--search|--define] [--clipboard] [--dict=/path/to/dict]\n",progname);
+-  printf("     --help: Display all options available for wordinspect.
+-     --version: Display wordinspect's current version and copyright.
+-     --search: Search for the word provided on the command line 
+-               [Default].
+-     --define: Define the word provided on the command line.
+-     --clipboard: Use the word currently in X's primary selection (the
+-                  clipboard) as if it were typed on the command line.
+-                  Useful for launching from a menu or hot-key.
+-     --dict=/path/to/dict: Use the copy of dict in /path/to/dict.
+-");
++  printf("     --help: Display all options available for wordinspect.\n"
++"     --version: Display wordinspect's current version and copyright.\n"
++"     --search: Search for the word provided on the command line \n"
++"               [Default].\n"
++"     --define: Define the word provided on the command line.\n"
++"     --clipboard: Use the word currently in X's primary selection (the\n"
++"                  clipboard) as if it were typed on the command line.\n"
++"                  Useful for launching from a menu or hot-key.\n"
++"     --dict=/path/to/dict: Use the copy of dict in /path/to/dict.\n"
++);
+ 
+ }
+ 
