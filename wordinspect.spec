@@ -14,8 +14,6 @@ BuildRequires:	gtk+-devel
 Requires:	dict
 BuildRoot:	%{tmpdir}/%{name}-%{version}-root-%(id -u -n)
 
-%define		_prefix		/usr/X11R6
-
 %description
 Word Inspector is a graphical front-end to the "dict" program. The
 dict program allows you to search through one or more dictionary-like
