@@ -16,7 +16,7 @@ BuildRequires:	gtk+-devel
 Requires:	dict
 BuildRoot:	%{tmpdir}/%{name}-%{version}-root-%(id -u -n)
 
-%define		specflags_ia32	"-fomit-frame-pointer"
+%define		specflags_ia32	 -fomit-frame-pointer 
 
 %description
 Word Inspector is a graphical front-end to the "dict" program. The
