@@ -1,0 +1,3042 @@
+--- wordinspect-0.1a.orig/dict.c
++++ wordinspect-0.1a/dict.c
+@@ -27,7 +27,7 @@
+ #include <unistd.h>
+ #include <sys/types.h>
+ #include <sys/wait.h>
+-#include <strings.h>
++#include <string.h>
+ #include <gtk/gtk.h>
+ #include <stdio.h>
+ 
+--- wordinspect-0.1a.orig/gladesig.c
++++ wordinspect-0.1a/gladesig.c
+@@ -475,14 +475,14 @@
+   /* How can we avoid the memory leak in the signal_connects below? */
+   menu_item=gtk_menu_item_new_with_label(menu_word);
+   gtk_menu_append(GTK_MENU(root_menu),menu_item);
+-  gtk_signal_connect_object(GTK_OBJECT(menu_item),"activate",
++  gtk_signal_connect(GTK_OBJECT(menu_item),"activate",
+                             GTK_SIGNAL_FUNC(do_define),(gpointer) safe_strdup(word));
+   gtk_widget_show(menu_item);
+   
+   sprintf(menu_word,"Search for '%s'",word);
+   menu_item=gtk_menu_item_new_with_label(menu_word);
+   gtk_menu_append(GTK_MENU(root_menu),menu_item);
+-  gtk_signal_connect_object(GTK_OBJECT(menu_item),"activate",
++  gtk_signal_connect(GTK_OBJECT(menu_item),"activate",
+                             GTK_SIGNAL_FUNC(do_find),(gpointer) safe_strdup(word));
+   gtk_widget_show(menu_item);
+   
+--- wordinspect-0.1a.orig/gladesrc.c
++++ wordinspect-0.1a/gladesrc.c
+@@ -1,4 +1,7 @@
+-/*  <PROJECT NAME>
++/*  Note: You are free to use whatever license you want.
++    Eventually you will be able to edit it within Glade. */
++
++/*  WordInspect
+  *  Copyright (C) <YEAR> <AUTHORS>
+  *
+  *  This program is free software; you can redistribute it and/or modify
+@@ -16,7 +19,16 @@
+  *  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+ */
+ 
++#include <sys/stat.h>
++#include <unistd.h>
++#include <string.h>
++
++#ifdef HAVE_CONFIG_H
++#  include <config.h>
++#endif
++
+ #include <gtk/gtk.h>
++#include <gdk/gdkkeysyms.h>
+ #include "gladesig.h"
+ #include "gladesrc.h"
+ 
+@@ -24,10 +36,19 @@
+ get_widget                             (GtkWidget       *widget,
+                                         gchar           *widget_name)
+ {
+-  GtkWidget *found_widget;
++  GtkWidget *parent, *found_widget;
++
++  for (;;)
++    {
++      if (GTK_IS_MENU (widget))
++        parent = gtk_menu_get_attach_widget (GTK_MENU (widget));
++      else
++        parent = widget->parent;
++      if (parent == NULL)
++        break;
++      widget = parent;
++    }
+ 
+-  if (widget->parent)
+-    widget = gtk_widget_get_toplevel (widget);
+   found_widget = (GtkWidget*) gtk_object_get_data (GTK_OBJECT (widget),
+                                                    widget_name);
+   if (!found_widget)
+@@ -36,14 +57,14 @@
+ }
+ 
+ /* This is an internally used function to set notebook tab widgets. */
+-static void
++void
+ set_notebook_tab                       (GtkWidget       *notebook,
+                                         gint             page_num,
+                                         GtkWidget       *widget)
+ {
+   GtkNotebookPage *page;
+   GtkWidget *notebook_page;
+-  
++
+   page = (GtkNotebookPage*) g_list_nth (GTK_NOTEBOOK (notebook)->children, page_num)->data;
+   notebook_page = page->child;
+   gtk_widget_ref (notebook_page);
+@@ -53,6 +74,85 @@
+   gtk_widget_unref (notebook_page);
+ }
+ 
++static GList *pixmaps_directories = NULL;
++
++/* Use this function to set the directory containing installed pixmaps. */
++void
++add_pixmap_directory                   (gchar           *directory)
++{
++  pixmaps_directories = g_list_prepend (pixmaps_directories, g_strdup (directory));
++}
++
++/* This is an internally used function to check if a pixmap file exists. */
++#ifndef G_DIR_SEPARATOR_S
++#define G_DIR_SEPARATOR_S "/"
++#endif
++gchar*
++check_file_exists                      (gchar           *directory,
++                                        gchar           *filename)
++{
++  gchar *full_filename;
++  struct stat s;
++  gint status;
++
++  full_filename = g_malloc (strlen (directory) + 1 + strlen (filename) + 1);
++  strcpy (full_filename, directory);
++  strcat (full_filename, G_DIR_SEPARATOR_S);
++  strcat (full_filename, filename);
++
++  status = stat (full_filename, &s);
++  if (status == 0 && S_ISREG (s.st_mode))
++    return full_filename;
++  g_free (full_filename);
++  return NULL;
++}
++
++/* This is an internally used function to create pixmaps. */
++GtkWidget*
++create_pixmap                          (GtkWidget       *widget,
++                                        gchar           *filename)
++{
++  gchar *found_filename = NULL;
++  GdkColormap *colormap;
++  GdkPixmap *gdkpixmap;
++  GdkBitmap *mask;
++  GtkWidget *pixmap;
++  GList *elem;
++
++  /* We first try any pixmaps directories set by the application. */
++  elem = pixmaps_directories;
++  while (elem)
++    {
++      found_filename = check_file_exists ((gchar*)elem->data, filename);
++      if (found_filename)
++        break;
++      elem = elem->next;
++    }
++
++  /* If we haven't found the pixmap, try the source directory. */
++  if (!found_filename)
++    {
++      found_filename = check_file_exists ("pixmaps", filename);
++    }
++
++  if (!found_filename)
++    {
++      g_print ("Couldn't find pixmap file: %s", filename);
++      return NULL;
++    }
++
++  colormap = gtk_widget_get_colormap (widget);
++  gdkpixmap = gdk_pixmap_colormap_create_from_xpm (NULL, colormap, &mask,
++                                                   NULL, found_filename);
++  g_free (found_filename);
++  if (gdkpixmap == NULL)
++    return NULL;
++  pixmap = gtk_pixmap_new (gdkpixmap, mask);
++  gdk_pixmap_unref (gdkpixmap);
++  gdk_bitmap_unref (mask);
++  return pixmap;
++}
++
+ GtkWidget*
+ create_winWordInspector ()
+ {
+@@ -61,6 +161,7 @@
+   GtkWidget *labelWord;
+   GtkWidget *hseparator1;
+   GtkWidget *scrolledwindow2;
++  GtkWidget *viewport1;
+   GtkWidget *hbox1;
+   GtkWidget *labelDef;
+   GtkWidget *alignment2;
+@@ -99,10 +200,16 @@
+   gtk_widget_set_usize (scrolledwindow2, 450, 282);
+   gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolledwindow2), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+ 
++  viewport1 = gtk_viewport_new (NULL, NULL);
++  gtk_object_set_data (GTK_OBJECT (winWordInspector), "viewport1", viewport1);
++  gtk_widget_show (viewport1);
++  gtk_container_add (GTK_CONTAINER (scrolledwindow2), viewport1);
++  gtk_viewport_set_shadow_type (GTK_VIEWPORT (viewport1), GTK_SHADOW_NONE);
++
+   hbox1 = gtk_hbox_new (FALSE, 0);
+   gtk_object_set_data (GTK_OBJECT (winWordInspector), "hbox1", hbox1);
+   gtk_widget_show (hbox1);
+-  gtk_container_add (GTK_CONTAINER (scrolledwindow2), hbox1);
++  gtk_container_add (GTK_CONTAINER (viewport1), hbox1);
+ 
+   labelDef = gtk_text_new (NULL, NULL);
+   gtk_object_set_data (GTK_OBJECT (winWordInspector), "labelDef", labelDef);
+@@ -124,6 +231,7 @@
+   gtk_object_set_data (GTK_OBJECT (winWordInspector), "vscrollbar2", vscrollbar2);
+   gtk_widget_show (vscrollbar2);
+   gtk_container_add (GTK_CONTAINER (alignment2), vscrollbar2);
++  GTK_WIDGET_SET_FLAGS (vscrollbar2, GTK_CAN_FOCUS);
+ 
+   hseparator4 = gtk_hseparator_new ();
+   gtk_object_set_data (GTK_OBJECT (winWordInspector), "hseparator4", hseparator4);
+@@ -149,14 +257,13 @@
+ create_winWordFinder ()
+ {
+   GtkWidget *winWordFinder;
+-  GtkWidget *vbox3;
+   GtkWidget *table1;
+-  GtkWidget *entryWord;
+-  GtkWidget *label3;
+-  GtkWidget *buttonClose;
+-  GtkWidget *hseparator3;
+   GtkWidget *label4;
++  GtkWidget *hseparator3;
++  GtkWidget *label3;
++  GtkWidget *entryWord;
+   GtkWidget *buttonSearch;
++  GtkWidget *buttonClose;
+ 
+   winWordFinder = gtk_window_new (GTK_WINDOW_TOPLEVEL);
+   gtk_object_set_data (GTK_OBJECT (winWordFinder), "winWordFinder", winWordFinder);
+@@ -165,77 +272,70 @@
+                       NULL);
+   gtk_window_set_title (GTK_WINDOW (winWordFinder), "Word Finder");
+ 
+-  vbox3 = gtk_vbox_new (FALSE, 0);
+-  gtk_object_set_data (GTK_OBJECT (winWordFinder), "vbox3", vbox3);
+-  gtk_widget_show (vbox3);
+-  gtk_container_add (GTK_CONTAINER (winWordFinder), vbox3);
+-  gtk_widget_set_usize (vbox3, -1, 109);
+-  gtk_widget_set_sensitive (vbox3, FALSE);
+-
+   table1 = gtk_table_new (4, 3, FALSE);
+   gtk_object_set_data (GTK_OBJECT (winWordFinder), "table1", table1);
+   gtk_widget_show (table1);
+-  gtk_box_pack_start (GTK_BOX (vbox3), table1, TRUE, TRUE, 0);
++  gtk_container_add (GTK_CONTAINER (winWordFinder), table1);
+   gtk_widget_set_sensitive (table1, FALSE);
+ 
+-  entryWord = gtk_entry_new ();
+-  gtk_object_set_data (GTK_OBJECT (winWordFinder), "entryWord", entryWord);
+-  gtk_widget_show (entryWord);
+-  gtk_table_attach (GTK_TABLE (table1), entryWord, 1, 2, 1, 2,
+-                    GTK_SHRINK, GTK_EXPAND | GTK_SHRINK | GTK_FILL, 0, 0);
+-  GTK_WIDGET_SET_FLAGS (entryWord, GTK_CAN_DEFAULT);
+-  gtk_widget_grab_focus (entryWord);
+-  gtk_signal_connect (GTK_OBJECT (entryWord), "activate",
+-                      GTK_SIGNAL_FUNC (on_buttonSearch_clicked),
+-                      entryWord);
++  label4 = gtk_label_new ("  ");
++  gtk_object_set_data (GTK_OBJECT (winWordFinder), "label4", label4);
++  gtk_widget_show (label4);
++  gtk_table_attach (GTK_TABLE (table1), label4, 0, 1, 1, 2,
++                    (GtkAttachOptions) GTK_EXPAND | GTK_FILL, (GtkAttachOptions) GTK_EXPAND | GTK_FILL, 0, 0);
++  gtk_widget_set_usize (label4, 22, -2);
++  gtk_widget_set_sensitive (label4, FALSE);
++  gtk_label_set_justify (GTK_LABEL (label4), GTK_JUSTIFY_LEFT);
++
++  hseparator3 = gtk_hseparator_new ();
++  gtk_object_set_data (GTK_OBJECT (winWordFinder), "hseparator3", hseparator3);
++  gtk_widget_show (hseparator3);
++  gtk_table_attach (GTK_TABLE (table1), hseparator3, 0, 3, 2, 3,
++                    (GtkAttachOptions) GTK_EXPAND, (GtkAttachOptions) GTK_EXPAND, 0, 0);
++  gtk_widget_set_usize (hseparator3, -2, 23);
++  gtk_widget_set_sensitive (hseparator3, FALSE);
+ 
+   label3 = gtk_label_new ("Search For...");
+   gtk_object_set_data (GTK_OBJECT (winWordFinder), "label3", label3);
+   gtk_widget_show (label3);
+   gtk_table_attach (GTK_TABLE (table1), label3, 0, 3, 0, 1,
+-                    GTK_SHRINK | GTK_FILL, GTK_SHRINK, 0, 0);
++                    (GtkAttachOptions) GTK_SHRINK | GTK_FILL, (GtkAttachOptions) GTK_SHRINK, 0, 0);
+   gtk_widget_set_usize (label3, 212, 21);
+   gtk_widget_set_sensitive (label3, FALSE);
+   gtk_label_set_justify (GTK_LABEL (label3), GTK_JUSTIFY_LEFT);
+ 
+-  buttonClose = gtk_button_new_with_label ("Close");
+-  gtk_object_set_data (GTK_OBJECT (winWordFinder), "buttonClose", buttonClose);
+-  gtk_widget_show (buttonClose);
+-  gtk_table_attach (GTK_TABLE (table1), buttonClose, 0, 3, 3, 4,
+-                    0, 0, 0, 0);
+-  gtk_widget_set_usize (buttonClose, 104, 29);
+-  gtk_signal_connect_object (GTK_OBJECT (buttonClose), "clicked",
+-                             GTK_SIGNAL_FUNC (do_quit),
+-                             GTK_OBJECT (winWordFinder));
+-
+-  hseparator3 = gtk_hseparator_new ();
+-  gtk_object_set_data (GTK_OBJECT (winWordFinder), "hseparator3", hseparator3);
+-  gtk_widget_show (hseparator3);
+-  gtk_table_attach (GTK_TABLE (table1), hseparator3, 0, 3, 2, 3,
+-                    GTK_EXPAND, GTK_EXPAND, 0, 0);
+-  gtk_widget_set_usize (hseparator3, -1, 23);
+-  gtk_widget_set_sensitive (hseparator3, FALSE);
+-
+-  label4 = gtk_label_new ("  ");
+-  gtk_object_set_data (GTK_OBJECT (winWordFinder), "label4", label4);
+-  gtk_widget_show (label4);
+-  gtk_table_attach (GTK_TABLE (table1), label4, 0, 1, 1, 2,
+-                    GTK_EXPAND | GTK_FILL, GTK_EXPAND | GTK_FILL, 0, 0);
+-  gtk_widget_set_usize (label4, 22, -1);
+-  gtk_widget_set_sensitive (label4, FALSE);
+-  gtk_label_set_justify (GTK_LABEL (label4), GTK_JUSTIFY_LEFT);
++  entryWord = gtk_entry_new ();
++  gtk_object_set_data (GTK_OBJECT (winWordFinder), "entryWord", entryWord);
++  gtk_widget_show (entryWord);
++  gtk_table_attach (GTK_TABLE (table1), entryWord, 1, 2, 1, 2,
++                    (GtkAttachOptions) GTK_SHRINK, (GtkAttachOptions) GTK_EXPAND | GTK_SHRINK | GTK_FILL, 0, 0);
++  GTK_WIDGET_SET_FLAGS (entryWord, GTK_CAN_DEFAULT);
++  gtk_widget_grab_focus (entryWord);
++  gtk_signal_connect (GTK_OBJECT (entryWord), "activate",
++                      GTK_SIGNAL_FUNC (on_buttonSearch_clicked),
++                      entryWord);
+ 
+   buttonSearch = gtk_button_new_with_label ("Search");
+   gtk_object_set_data (GTK_OBJECT (winWordFinder), "buttonSearch", buttonSearch);
+   gtk_widget_show (buttonSearch);
+   gtk_table_attach (GTK_TABLE (table1), buttonSearch, 2, 3, 1, 2,
+-                    GTK_EXPAND, GTK_EXPAND, 0, 0);
++                    (GtkAttachOptions) GTK_EXPAND, (GtkAttachOptions) GTK_EXPAND, 0, 0);
+   gtk_widget_set_usize (buttonSearch, 65, 33);
+   GTK_WIDGET_SET_FLAGS (buttonSearch, GTK_CAN_DEFAULT);
+   gtk_widget_grab_default (buttonSearch);
+   gtk_signal_connect (GTK_OBJECT (buttonSearch), "clicked",
+                       GTK_SIGNAL_FUNC (on_buttonSearch_clicked),
+                       entryWord);
++
++  buttonClose = gtk_button_new_with_label ("Close");
++  gtk_object_set_data (GTK_OBJECT (winWordFinder), "buttonClose", buttonClose);
++  gtk_widget_show (buttonClose);
++  gtk_table_attach (GTK_TABLE (table1), buttonClose, 0, 3, 3, 4,
++                    (GtkAttachOptions) 0, (GtkAttachOptions) 0, 0, 2);
++  gtk_widget_set_usize (buttonClose, 104, 29);
++  gtk_signal_connect_object (GTK_OBJECT (buttonClose), "clicked",
++                             GTK_SIGNAL_FUNC (do_quit),
++                             GTK_OBJECT (winWordFinder));
+ 
+   return winWordFinder;
+ }
+--- wordinspect-0.1a.orig/gladesrc.h
++++ wordinspect-0.1a/gladesrc.h
+@@ -1,4 +1,7 @@
+-/*  <PROJECT NAME>
++/*  Note: You are free to use whatever license you want.
++    Eventually you will be able to edit it within Glade. */
++
++/*  WordInspect
+  *  Copyright (C) <YEAR> <AUTHORS>
+  *
+  *  This program is free software; you can redistribute it and/or modify
+@@ -16,6 +19,8 @@
+  *  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+ */
+ 
++#include <gtk/gtk.h>
++
+ /*
+  * This function returns a widget in a component created by Glade.
+  * Call it with the toplevel widget in the component (i.e. a window/dialog),
+@@ -25,6 +30,25 @@
+ GtkWidget*
+ get_widget                             (GtkWidget       *widget,
+                                         gchar           *widget_name);
++
++
++ /*
++  * This is an internally used function for setting notebook tabs. It is only
++  * included in this header file so you don't get compilation warnings
++  */
++void
++set_notebook_tab                       (GtkWidget       *notebook,
++                                        gint             page_num,
++                                        GtkWidget       *widget);
++
++/* Use this function to set the directory containing installed pixmaps. */
++void
++add_pixmap_directory                   (gchar           *directory);
++
++/* This is an internally used function to create pixmaps. */
++GtkWidget*
++create_pixmap                          (GtkWidget       *widget,
++                                        gchar           *filename);
+ 
+ GtkWidget* create_winWordInspector (void);
+ GtkWidget* create_winWordFinder (void);
+--- wordinspect-0.1a.orig/utils.c
++++ wordinspect-0.1a/utils.c
+@@ -25,7 +25,7 @@
+ 
+ #include <stdio.h>
+ #include <stdlib.h>
+-#include <strings.h>
++#include <string.h>
+ #include <stdarg.h>
+ #include "utils.h"
+ 
+--- wordinspect-0.1a.orig/wordinspect.glade
++++ wordinspect-0.1a/wordinspect.glade
+@@ -1,14 +1,27 @@
+ <?xml version="1.0"?>
+ <GTK-Interface>
+ 
++<project>
++  <name>WordInspect</name>
++  <directory></directory>
++  <source_directory></source_directory>
++  <pixmaps_directory>pixmaps</pixmaps_directory>
++  <language>C</language>
++  <gettext_support>False</gettext_support>
++  <use_widget_names>False</use_widget_names>
++  <main_source_file>gladesrc.c</main_source_file>
++  <main_header_file>gladesrc.h</main_header_file>
++  <handler_source_file>gladesig.c</handler_source_file>
++  <handler_header_file>gladesig.h</handler_header_file>
++</project>
+ 
+ <widget>
+   <class>GtkWindow</class>
+   <name>winWordInspector</name>
+-  <Signal>
++  <signal>
+     <name>destroy</name>
+     <handler>do_delwindow</handler>
+-  </Signal>
++  </signal>
+   <title>Word Inspector</title>
+   <type>GTK_WINDOW_TOPLEVEL</type>
+   <position>GTK_WIN_POS_NONE</position>
+@@ -27,9 +40,9 @@
+       <class>GtkLabel</class>
+       <name>labelWord</name>
+       <child>
+-        <padding>0</padding>
+-        <expand>False</expand>
+-        <fill>True</fill>
++	<padding>0</padding>
++	<expand>False</expand>
++	<fill>True</fill>
+       </child>
+       <label>Word Goes Here.</label>
+       <justify>GTK_JUSTIFY_CENTER</justify>
+@@ -43,9 +56,9 @@
+       <class>GtkHSeparator</class>
+       <name>hseparator1</name>
+       <child>
+-        <padding>0</padding>
+-        <expand>False</expand>
+-        <fill>True</fill>
++	<padding>0</padding>
++	<expand>False</expand>
++	<fill>True</fill>
+       </child>
+       <sensitive>False</sensitive>
+     </widget>
+@@ -54,72 +67,77 @@
+       <class>GtkScrolledWindow</class>
+       <name>scrolledwindow2</name>
+       <child>
+-        <padding>0</padding>
+-        <expand>True</expand>
+-        <fill>True</fill>
++	<padding>0</padding>
++	<expand>True</expand>
++	<fill>True</fill>
+       </child>
+       <width>450</width>
+       <height>282</height>
+-      <shadow_type>GTK_SHADOW_IN</shadow_type>
+       <hscrollbar_policy>GTK_POLICY_AUTOMATIC</hscrollbar_policy>
+       <vscrollbar_policy>GTK_POLICY_AUTOMATIC</vscrollbar_policy>
+       <hupdate_policy>GTK_UPDATE_CONTINUOUS</hupdate_policy>
+       <vupdate_policy>GTK_UPDATE_CONTINUOUS</vupdate_policy>
+ 
+       <widget>
+-        <class>GtkHBox</class>
+-        <name>hbox1</name>
+-        <homogeneous>False</homogeneous>
+-        <spacing>0</spacing>
+-
+-        <widget>
+-          <class>GtkText</class>
+-          <name>labelDef</name>
+-          <child>
+-            <padding>0</padding>
+-            <expand>True</expand>
+-            <fill>True</fill>
+-          </child>
+-          <can_focus>True</can_focus>
+-          <Signal>
+-            <name>button_press_event</name>
+-            <handler>on_labelDef_button_release_event</handler>
+-            <after>True</after>
+-          </Signal>
+-          <Signal>
+-            <name>button_press_event</name>
+-            <handler>on_labelDef_button_release_event_before</handler>
+-          </Signal>
+-          <editable>False</editable>
+-          <text></text>
+-        </widget>
+-
+-        <widget>
+-          <class>GtkAlignment</class>
+-          <name>alignment2</name>
+-          <child>
+-            <padding>0</padding>
+-            <expand>False</expand>
+-            <fill>True</fill>
+-          </child>
+-          <xalign>0.5</xalign>
+-          <yalign>0.5</yalign>
+-          <xscale>1</xscale>
+-          <yscale>1</yscale>
+-
+-          <widget>
+-            <class>GtkVScrollbar</class>
+-            <name>vscrollbar2</name>
+-            <can_focus>True</can_focus>
+-            <policy>GTK_UPDATE_CONTINUOUS</policy>
+-            <vvalue>0</vvalue>
+-            <vlower>0</vlower>
+-            <vupper>0</vupper>
+-            <vstep>0</vstep>
+-            <vpage>0</vpage>
+-            <vpage_size>0</vpage_size>
+-          </widget>
+-        </widget>
++	<class>GtkViewport</class>
++	<name>viewport1</name>
++	<shadow_type>GTK_SHADOW_NONE</shadow_type>
++
++	<widget>
++	  <class>GtkHBox</class>
++	  <name>hbox1</name>
++	  <homogeneous>False</homogeneous>
++	  <spacing>0</spacing>
++
++	  <widget>
++	    <class>GtkText</class>
++	    <name>labelDef</name>
++	    <child>
++	      <padding>0</padding>
++	      <expand>True</expand>
++	      <fill>True</fill>
++	    </child>
++	    <can_focus>True</can_focus>
++	    <signal>
++	      <name>button_press_event</name>
++	      <handler>on_labelDef_button_release_event</handler>
++	      <after>True</after>
++	    </signal>
++	    <signal>
++	      <name>button_press_event</name>
++	      <handler>on_labelDef_button_release_event_before</handler>
++	    </signal>
++	    <editable>False</editable>
++	    <text></text>
++	  </widget>
++
++	  <widget>
++	    <class>GtkAlignment</class>
++	    <name>alignment2</name>
++	    <child>
++	      <padding>0</padding>
++	      <expand>False</expand>
++	      <fill>True</fill>
++	    </child>
++	    <xalign>0.5</xalign>
++	    <yalign>0.5</yalign>
++	    <xscale>1</xscale>
++	    <yscale>1</yscale>
++
++	    <widget>
++	      <class>GtkVScrollbar</class>
++	      <name>vscrollbar2</name>
++	      <can_focus>True</can_focus>
++	      <policy>GTK_UPDATE_CONTINUOUS</policy>
++	      <vvalue>0</vvalue>
++	      <vlower>0</vlower>
++	      <vupper>0</vupper>
++	      <vstep>0</vstep>
++	      <vpage>0</vpage>
++	      <vpage_size>0</vpage_size>
++	    </widget>
++	  </widget>
++	</widget>
+       </widget>
+     </widget>
+ 
+@@ -127,9 +145,9 @@
+       <class>GtkHSeparator</class>
+       <name>hseparator4</name>
+       <child>
+-        <padding>0</padding>
+-        <expand>False</expand>
+-        <fill>False</fill>
++	<padding>0</padding>
++	<expand>False</expand>
++	<fill>False</fill>
+       </child>
+     </widget>
+ 
+@@ -137,9 +155,9 @@
+       <class>GtkButton</class>
+       <name>buttonOK</name>
+       <child>
+-        <padding>0</padding>
+-        <expand>False</expand>
+-        <fill>False</fill>
++	<padding>0</padding>
++	<expand>False</expand>
++	<fill>False</fill>
+       </child>
+       <width>329</width>
+       <height>38</height>
+@@ -147,11 +165,11 @@
+       <has_default>True</has_default>
+       <can_focus>True</can_focus>
+       <has_focus>True</has_focus>
+-      <Signal>
+-        <name>clicked</name>
+-        <handler>do_quit</handler>
+-        <object>winWordInspector</object>
+-      </Signal>
++      <signal>
++	<name>clicked</name>
++	<handler>do_quit</handler>
++	<object>winWordInspector</object>
++      </signal>
+       <label>OK</label>
+     </widget>
+   </widget>
+@@ -160,10 +178,10 @@
+ <widget>
+   <class>GtkWindow</class>
+   <name>winWordFinder</name>
+-  <Signal>
++  <signal>
+     <name>destroy</name>
+     <handler>do_delwindow</handler>
+-  </Signal>
++  </signal>
+   <title>Word Finder</title>
+   <type>GTK_WINDOW_TOPLEVEL</type>
+   <position>GTK_WIN_POS_NONE</position>
+@@ -172,192 +190,178 @@
+   <auto_shrink>False</auto_shrink>
+ 
+   <widget>
+-    <class>GtkVBox</class>
+-    <name>vbox3</name>
+-    <height>109</height>
++    <class>GtkTable</class>
++    <name>table1</name>
+     <sensitive>False</sensitive>
++    <rows>4</rows>
++    <columns>3</columns>
+     <homogeneous>False</homogeneous>
+-    <spacing>0</spacing>
++    <row_spacing>0</row_spacing>
++    <column_spacing>0</column_spacing>
+ 
+     <widget>
+-      <class>GtkTable</class>
+-      <name>table1</name>
++      <class>GtkLabel</class>
++      <name>label4</name>
+       <child>
+-        <padding>0</padding>
+-        <expand>True</expand>
+-        <fill>True</fill>
++	<left_attach>0</left_attach>
++	<right_attach>1</right_attach>
++	<top_attach>1</top_attach>
++	<bottom_attach>2</bottom_attach>
++	<xpad>0</xpad>
++	<ypad>0</ypad>
++	<xexpand>True</xexpand>
++	<yexpand>True</yexpand>
++	<xshrink>False</xshrink>
++	<yshrink>False</yshrink>
++	<xfill>True</xfill>
++	<yfill>True</yfill>
+       </child>
++      <width>22</width>
+       <sensitive>False</sensitive>
+-      <rows>4</rows>
+-      <columns>3</columns>
+-      <homogeneous>False</homogeneous>
+-      <row_spacing>0</row_spacing>
+-      <column_spacing>0</column_spacing>
+-
+-      <widget>
+-        <class>GtkButton</class>
+-        <name>buttonSearch</name>
+-        <child>
+-          <left_attach>2</left_attach>
+-          <right_attach>3</right_attach>
+-          <top_attach>1</top_attach>
+-          <bottom_attach>2</bottom_attach>
+-          <xpad>0</xpad>
+-          <ypad>0</ypad>
+-          <xexpand>True</xexpand>
+-          <yexpand>True</yexpand>
+-          <xshrink>False</xshrink>
+-          <yshrink>False</yshrink>
+-          <xfill>False</xfill>
+-          <yfill>False</yfill>
+-        </child>
+-        <width>65</width>
+-        <height>33</height>
+-        <can_default>True</can_default>
+-        <has_default>True</has_default>
+-        <can_focus>True</can_focus>
+-        <Signal>
+-          <name>clicked</name>
+-          <handler>on_buttonSearch_clicked</handler>
+-          <data>entryWord</data>
+-        </Signal>
+-        <label>Search</label>
+-      </widget>
++      <label>  </label>
++      <justify>GTK_JUSTIFY_LEFT</justify>
++      <xalign>0.5</xalign>
++      <yalign>0.5</yalign>
++      <xpad>0</xpad>
++      <ypad>0</ypad>
++    </widget>
+ 
+-      <widget>
+-        <class>GtkLabel</class>
+-        <name>label4</name>
+-        <child>
+-          <left_attach>0</left_attach>
+-          <right_attach>1</right_attach>
+-          <top_attach>1</top_attach>
+-          <bottom_attach>2</bottom_attach>
+-          <xpad>0</xpad>
+-          <ypad>0</ypad>
+-          <xexpand>True</xexpand>
+-          <yexpand>True</yexpand>
+-          <xshrink>False</xshrink>
+-          <yshrink>False</yshrink>
+-          <xfill>True</xfill>
+-          <yfill>True</yfill>
+-        </child>
+-        <width>22</width>
+-        <sensitive>False</sensitive>
+-        <label>  </label>
+-        <justify>GTK_JUSTIFY_LEFT</justify>
+-        <xalign>0.5</xalign>
+-        <yalign>0.5</yalign>
+-        <xpad>0</xpad>
+-        <ypad>0</ypad>
+-      </widget>
++    <widget>
++      <class>GtkHSeparator</class>
++      <name>hseparator3</name>
++      <child>
++	<left_attach>0</left_attach>
++	<right_attach>3</right_attach>
++	<top_attach>2</top_attach>
++	<bottom_attach>3</bottom_attach>
++	<xpad>0</xpad>
++	<ypad>0</ypad>
++	<xexpand>True</xexpand>
++	<yexpand>True</yexpand>
++	<xshrink>False</xshrink>
++	<yshrink>False</yshrink>
++	<xfill>False</xfill>
++	<yfill>False</yfill>
++      </child>
++      <height>23</height>
++      <sensitive>False</sensitive>
++    </widget>
+ 
+-      <widget>
+-        <class>GtkHSeparator</class>
+-        <name>hseparator3</name>
+-        <child>
+-          <left_attach>0</left_attach>
+-          <right_attach>3</right_attach>
+-          <top_attach>2</top_attach>
+-          <bottom_attach>3</bottom_attach>
+-          <xpad>0</xpad>
+-          <ypad>0</ypad>
+-          <xexpand>True</xexpand>
+-          <yexpand>True</yexpand>
+-          <xshrink>False</xshrink>
+-          <yshrink>False</yshrink>
+-          <xfill>False</xfill>
+-          <yfill>False</yfill>
+-        </child>
+-        <height>23</height>
+-        <sensitive>False</sensitive>
+-      </widget>
++    <widget>
++      <class>GtkLabel</class>
++      <name>label3</name>
++      <child>
++	<left_attach>0</left_attach>
++	<right_attach>3</right_attach>
++	<top_attach>0</top_attach>
++	<bottom_attach>1</bottom_attach>
++	<xpad>0</xpad>
++	<ypad>0</ypad>
++	<xexpand>False</xexpand>
++	<yexpand>False</yexpand>
++	<xshrink>True</xshrink>
++	<yshrink>True</yshrink>
++	<xfill>True</xfill>
++	<yfill>False</yfill>
++      </child>
++      <width>212</width>
++      <height>21</height>
++      <sensitive>False</sensitive>
++      <label>Search For...</label>
++      <justify>GTK_JUSTIFY_LEFT</justify>
++      <xalign>0.5</xalign>
++      <yalign>0.5</yalign>
++      <xpad>0</xpad>
++      <ypad>0</ypad>
++    </widget>
+ 
+-      <widget>
+-        <class>GtkButton</class>
+-        <name>buttonClose</name>
+-        <child>
+-          <left_attach>0</left_attach>
+-          <right_attach>3</right_attach>
+-          <top_attach>3</top_attach>
+-          <bottom_attach>4</bottom_attach>
+-          <xpad>0</xpad>
+-          <ypad>0</ypad>
+-          <xexpand>False</xexpand>
+-          <yexpand>False</yexpand>
+-          <xshrink>False</xshrink>
+-          <yshrink>False</yshrink>
+-          <xfill>False</xfill>
+-          <yfill>False</yfill>
+-        </child>
+-        <width>104</width>
+-        <height>29</height>
+-        <can_focus>True</can_focus>
+-        <Signal>
+-          <name>clicked</name>
+-          <handler>do_quit</handler>
+-          <object>winWordFinder</object>
+-        </Signal>
+-        <label>Close</label>
+-      </widget>
++    <widget>
++      <class>GtkEntry</class>
++      <name>entryWord</name>
++      <child>
++	<left_attach>1</left_attach>
++	<right_attach>2</right_attach>
++	<top_attach>1</top_attach>
++	<bottom_attach>2</bottom_attach>
++	<xpad>0</xpad>
++	<ypad>0</ypad>
++	<xexpand>False</xexpand>
++	<yexpand>True</yexpand>
++	<xshrink>True</xshrink>
++	<yshrink>True</yshrink>
++	<xfill>False</xfill>
++	<yfill>True</yfill>
++      </child>
++      <can_default>True</can_default>
++      <can_focus>True</can_focus>
++      <has_focus>True</has_focus>
++      <signal>
++	<name>activate</name>
++	<handler>on_buttonSearch_clicked</handler>
++	<data>entryWord</data>
++      </signal>
++      <editable>True</editable>
++      <text_visible>True</text_visible>
++      <text_max_length>0</text_max_length>
++      <text></text>
++    </widget>
+ 
+-      <widget>
+-        <class>GtkLabel</class>
+-        <name>label3</name>
+-        <child>
+-          <left_attach>0</left_attach>
+-          <right_attach>3</right_attach>
+-          <top_attach>0</top_attach>
+-          <bottom_attach>1</bottom_attach>
+-          <xpad>0</xpad>
+-          <ypad>0</ypad>
+-          <xexpand>False</xexpand>
+-          <yexpand>False</yexpand>
+-          <xshrink>True</xshrink>
+-          <yshrink>True</yshrink>
+-          <xfill>True</xfill>
+-          <yfill>False</yfill>
+-        </child>
+-        <width>212</width>
+-        <height>21</height>
+-        <sensitive>False</sensitive>
+-        <label>Search For...</label>
+-        <justify>GTK_JUSTIFY_LEFT</justify>
+-        <xalign>0.5</xalign>
+-        <yalign>0.5</yalign>
+-        <xpad>0</xpad>
+-        <ypad>0</ypad>
+-      </widget>
++    <widget>
++      <class>GtkButton</class>
++      <name>buttonSearch</name>
++      <child>
++	<left_attach>2</left_attach>
++	<right_attach>3</right_attach>
++	<top_attach>1</top_attach>
++	<bottom_attach>2</bottom_attach>
++	<xpad>0</xpad>
++	<ypad>0</ypad>
++	<xexpand>True</xexpand>
++	<yexpand>True</yexpand>
++	<xshrink>False</xshrink>
++	<yshrink>False</yshrink>
++	<xfill>False</xfill>
++	<yfill>False</yfill>
++      </child>
++      <width>65</width>
++      <height>33</height>
++      <can_default>True</can_default>
++      <has_default>True</has_default>
++      <can_focus>True</can_focus>
++      <signal>
++	<name>clicked</name>
++	<handler>on_buttonSearch_clicked</handler>
++	<data>entryWord</data>
++      </signal>
++      <label>Search</label>
++    </widget>
+ 
+-      <widget>
+-        <class>GtkEntry</class>
+-        <name>entryWord</name>
+-        <child>
+-          <left_attach>1</left_attach>
+-          <right_attach>2</right_attach>
+-          <top_attach>1</top_attach>
+-          <bottom_attach>2</bottom_attach>
+-          <xpad>0</xpad>
+-          <ypad>0</ypad>
+-          <xexpand>False</xexpand>
+-          <yexpand>True</yexpand>
+-          <xshrink>True</xshrink>
+-          <yshrink>True</yshrink>
+-          <xfill>False</xfill>
+-          <yfill>True</yfill>
+-        </child>
+-        <can_default>True</can_default>
+-        <can_focus>True</can_focus>
+-        <has_focus>True</has_focus>
+-        <Signal>
+-          <name>activate</name>
+-          <handler>on_buttonSearch_clicked</handler>
+-          <data>entryWord</data>
+-        </Signal>
+-        <editable>True</editable>
+-        <text_visible>True</text_visible>
+-        <text_max_length>0</text_max_length>
+-        <text></text>
+-      </widget>
++    <widget>
++      <class>GtkButton</class>
++      <name>buttonClose</name>
++      <child>
++	<left_attach>0</left_attach>
++	<right_attach>3</right_attach>
++	<top_attach>3</top_attach>
++	<bottom_attach>4</bottom_attach>
++	<xpad>0</xpad>
++	<ypad>2</ypad>
++	<xexpand>False</xexpand>
++	<yexpand>False</yexpand>
++	<xshrink>False</xshrink>
++	<yshrink>False</yshrink>
++	<xfill>False</xfill>
++	<yfill>False</yfill>
++      </child>
++      <width>104</width>
++      <height>29</height>
++      <can_focus>True</can_focus>
++      <signal>
++	<name>clicked</name>
++	<handler>do_quit</handler>
++	<object>winWordFinder</object>
++      </signal>
++      <label>Close</label>
+     </widget>
+   </widget>
+ </widget>
+--- wordinspect-0.1a.orig/debian/changelog
++++ wordinspect-0.1a/debian/changelog
+@@ -0,0 +1,74 @@
++wordinspect (0.1a-8) unstable; urgency=low
++
++  * New err... old maintainer (closes: Bug#105356)
++  * Used new Joey-style debian/rules, hence reverted capitalization of
++    doc files
++  * Re-added support for DEB_BUILD_OPTIONS
++  * Removed superflous TODO.Debian (closes: Bug#124094)
++  * Fixed override disparity (closes: Bug#124305)
++
++ -- Martin Schulze <joey@finlandia.infodrom.north.de>  Fri, 28 Dec 2001 20:22:33 +0100
++
++wordinspect (0.1a-7) unstable; urgency=low
++
++  * QA upload.
++  * Package is orphaned; maintainer set to Debian QA Group.
++  * Converted to debhelper.
++  * debian/copyright: Updated upstream URL.
++  * debian/wordinspect.1: Removed trailing garbage.
++  * Arranged debian/diffs/* into a compact debian/mbox.
++  * Moved copyright notice from debian/rules to debian/copyright, leaving
++    less changes to the debhelper template.
++  * Conforms to Standards version 3.5.6:
++    * Added build dependencies.
++    * debian/rules: Support DEB_BUILD_OPTIONS.
++
++ -- Matej Vela <vela@debian.org>  Thu, 13 Dec 2001 17:50:02 +0100
++
++wordinspect (0.1a-6) unstable; urgency=low
++
++  * Update to Standards version 3.0.1.1:
++    Modified for FHS - /usr/share{doc, man}
++    provided symlink /usr/doc/wordinspect to /usr/share/doc/wordinspect
++    Corrected location of GPL license
++  * Added man page contributed by Roland Rosenfeld <roland@debian.org>.
++    Thanks, Roland.  Closes: #38150
++
++ -- Bob Hilliard <hilliard@debian.org>  Thu, 21 Oct 1999 16:11:10 -0400
++
++wordinspect (0.1a-5) unstable; urgency=low
++
++  * Inserted `rm -f .deps/*.P' in rules to permit compiling in non-i386
++    evnironments.  fixes 38342
++  * Included modified undocumnented man page.
++
++ -- Bob Hilliard <hilliard@debian.org>  Thu, 27 May 1999 15:43:21 -0400
++
++wordinspect (0.1a-4) unstable; urgency=low
++
++  *  New Maintainer - Bob Hilliard <hilliard@debian.org>
++  * Patched for libc6_2.1.  Patch submitted by Rene Hojbjerg Larsen
++    <renehl@post1.tele.dk>.  Thank you, Rene.
++  * Compiled for potato
++
++ -- Bob Hilliard <hilliard@debian.org>  Tue, 18 May 1999 19:16:53 -0400
++
++wordinspect (0.1a-3) frozen unstable; urgency=medium
++
++  * Reupload into frozen because the distribution was changed suddenly
++    *after* the last upload so it went into the wrong one.
++
++ -- Martin Schulze <joey@finlandia.infodrom.north.de>  Wed,  4 Nov 1998 06:29:31 +0100
++
++wordinspect (0.1a-2) unstable; urgency=low
++
++  * Fixed calls to update-menu in postinst/postrm (closes: Bug#28764)
++
++ -- Martin Schulze <joey@finlandia.infodrom.north.de>  Sat, 31 Oct 1998 10:53:35 +0100
++
++wordinspect (0.1a-1) unstable; urgency=low
++
++  * Initial release
++  * Added menu file
++
++ -- Martin Schulze <joey@finlandia.infodrom.north.de>  Fri, 16 Oct 1998 20:00:16 +0200
+--- wordinspect-0.1a.orig/debian/control
++++ wordinspect-0.1a/debian/control
+@@ -0,0 +1,19 @@
++Source: wordinspect
++Section: text
++Priority: extra
++Maintainer: Martin Schulze <joey@debian.org>
++Standards-Version: 3.5.6
++Build-Depends: libgtk1.2-dev
++
++Package: wordinspect
++Architecture: any
++Depends: dict, ${shlibs:Depends}
++Description: GTK-based Dictionary Client
++ This package provides a graphical frontend to dict, which is a client
++ that queries the dictd server.  Since dict is TCP based, it can access
++ servers on the local host, on a local network, or on the Internet.
++ .
++ In addition to the dict client, this package requires access to a
++ dictd server, either from dictd installed on the local machine or
++ network, or over the Internet to one of the DICT Development Group's
++ public servers.
+--- wordinspect-0.1a.orig/debian/copyright
++++ wordinspect-0.1a/debian/copyright
+@@ -0,0 +1,35 @@
++This is the Debian GNU/Linux prepackaged version of a GTK-based
++frontend to the dict program, called wordinspect.
++
++This package was put together by Martin Schulze <joey@debian.org>,
++from sources obtained from:
++
++   http://www.suspectclass.com/~sgifford/wordinspect/
++
++wordinspect is released using the GNU GPL.
++
++   Copyright (C) 1998 Scott Gifford <sgifford@tir.com>
++
++   This program is free software; you can redistribute it and/or modify
++   it under the terms of the GNU General Public License as published by
++   the Free Software Foundation; version 2 dated June, 1991.
++
++   This program is distributed in the hope that it will be useful,
++   but WITHOUT ANY WARRANTY; without even the implied warranty of
++   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++   GNU General Public License for more details.
++
++   You should have received a copy of the GNU General Public License
++   along with this program;  if not, write to the Free Software
++   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111, USA.
++
++The Debian packaging is copyright (c) 1998,2001 Martin Schulze,
++(C) 1999 Bob Hilliard, and also released under the terms of the GNU
++General Public License; version 2, or any later version.
++
++On Debian GNU/Linux systems, the complete text of the GNU General
++Public License can be found as `/usr/share/common-licenses/GPL'.
++
++The source of the Debian package is managed through CVS.  It is publically
++available at <http://cvs.infodrom.org/wordinspect/?cvsroot=debian> or as
++<:pserver:anonymous@cvs.infodrom.org/var/cvs/debian/wordinspect/>.
+--- wordinspect-0.1a.orig/debian/mbox
++++ wordinspect-0.1a/debian/mbox
+@@ -0,0 +1,278 @@
++From renehl@post1.tele.dk Tue May 18 17:21:24 1999
++Date: Tue, 18 May 1999 17:21:24 +0200 (CEST)
++From: Rene Hojbjerg Larsen <renehl@post1.tele.dk>
++To: Bob Hilliard <hilliard@flinet.com>
++Subject: wordinspect in potato [patch]
++Message-ID: <Pine.LNX.4.10.9905181709450.26101-101000@renehl.ournet.dk>
++MIME-Version: 1.0
++Content-Type: MULTIPART/MIXED; BOUNDARY="-1463811840-167142029-927040884=:26101"
++X-UIDL: Xa0e9!7Oe9:I$e9\=md9
++Lines: 160
++Xref: bobspc.flinet.com misc:2238
++X-Gnus-Article-Number: 2238   Tue May 18 17:10:42 1999
++Status: RO
++
++  This message is in MIME format.  The first part should be readable text,
++  while the remaining parts are likely unreadable without MIME-aware tools.
++  Send mail to mime@docserver.cac.washington.edu for more info.
++
++---1463811840-167142029-927040884=:26101
++Content-Type: TEXT/PLAIN; charset=US-ASCII
++
++Hi Bob,
++
++I've fixed up wordinspect for gtk-1.2 (or so I believe, I'm not much of
++a GTK programmer).  I used glade to insert a viewport as a parent of the
++hbox1 widget, which seems to cure GTK's complaints.  I also changed a
++few instances of gtk_signal_connect_object to gtk_signal_connect to fix
++the problem with right-clicking on words and choosing "Search for ..."
++or "Define ...".  Finally, I changed a few #include <strings.h> to
++#include <string.h> to fix a few compiler warnings.  All in all, it
++seems to run well with these changes.  Patch attached.
++
++Regards,
++  Rene H. Larsen
++-- 
++       /'"`\  zzzZ  | My PGP Public Key is available at:
++      ( - - )       | <http://home1.inet.tele.dk/renehl/>
++--oooO--(_)--Oooo------------------------------------------ 
++ Don't ya just hate it when there's not enough room to fin 
++
++From renehl@post1.tele.dk Wed May 19 10:49:33 1999
++X-From-Line: bob Wed May 19 10:33:32 1999
++Received: from mail.flinet.com
++	by localhost with POP3 (fetchmail-5.0.1)
++	for bob@localhost (single-drop); Wed, 19 May 1999 10:33:31 -0400 (EDT)
++Received: from aix1.inet.tele.dk (aix1.inet.tele.dk [193.162.146.9])
++	by shell.flinet.com (8.9.3/8.9.1) with ESMTP id JAA13010
++	for <hilliard@flinet.com>; Wed, 19 May 1999 09:37:07 -0400 (EDT)
++Received: from izzlazz.ournet.dk (mail@ip181.ronnxr1.ras.tele.dk [195.249.54.181])
++	by aix1.inet.tele.dk (8.9.2/8.9.2) with ESMTP id PAA04824;
++	Wed, 19 May 1999 15:26:45 +0200
++Received: from renehl.ournet.dk [192.168.0.1] (mail)
++	by izzlazz.ournet.dk with esmtp (Exim 2.11 #1 (Debian))
++	id 10k6Lx-0003Or-00; Wed, 19 May 1999 15:25:45 +0200
++Received: from renehl by renehl.ournet.dk with local-esmtp (Exim 2.11 #1 (Debian))
++	id 10k6Lx-0002HI-00; Wed, 19 May 1999 15:25:45 +0200
++Date: Wed, 19 May 1999 15:25:45 +0200 (CEST)
++From: Rene Hojbjerg Larsen <renehl@post1.tele.dk>
++To: Scott Gifford <sgifford@tir.com>
++cc: Bob Hilliard <hilliard@flinet.com>
++Subject: Re: wordinspect in potato [patch]
++In-Reply-To: <m3ogjhlcdo.fsf@sgifford.tir.com>
++Message-ID: <Pine.LNX.4.10.9905191513180.8738-101000@renehl.ournet.dk>
++MIME-Version: 1.0
++Content-Type: MULTIPART/MIXED; BOUNDARY="-1463811840-1287880409-927120345=:8738"
++X-UIDL: B2,e9Fi<e9pBd!!nF#!!
++Lines: 208
++Xref: bobspc.flinet.com misc:2256
++X-Gnus-Article-Number: 2256   Wed May 19 10:35:16 1999
++Status: RO
++
++  This message is in MIME format.  The first part should be readable text,
++  while the remaining parts are likely unreadable without MIME-aware tools.
++  Send mail to mime@docserver.cac.washington.edu for more info.
++
++---1463811840-1287880409-927120345=:8738
++Content-Type: TEXT/PLAIN; charset=US-ASCII
++
++On 19 May 1999, Scott Gifford wrote:
++
++> Thanks Rene, that was the same fix I was going to make.  I'll apply
++> your patch and incorporate it into the official release.
++
++Don't apply my first patch!  It has a nasty bug: whenever you press the
++Search button, the program segfaults.  This has been fixed in my second
++patch (attached) by rearranging the widgets so that the entryWord widget
++is initialized before the buttonSearch widget.
++
++I also removed the vbox3 widget, as it was unnecessary.  The only
++remaining problem that I have found is this complaint when switching GTK
++themes using the Gnome control panel:
++
++Gdk-Message: Got event for unknown window: 0x5800001
++
++Gdk-Message: Got event for unknown window: 0x5800001
++
++I've no idea what to do about this.  Besides, it is no big deal since
++the theme is successfully changed anyway.
++
++HTH.
++
++> -----Scott.
++> 
++> Bob Hilliard <hilliard@flinet.com> writes:
++> 
++> >      Thanks a lot for this patch.  I haven't had a chance to try it
++> > yet, but if I have the same results you did, I'll release it for
++> > Debian RSN.  Thanks again.
++> > 
++> >      Scott - I hope this helps your nex release.
++> > 
++> > Rene Hojbjerg Larsen <renehl@post1.tele.dk> writes:
++> > 
++> > > Hi Bob,
++> > > 
++> > > I've fixed up wordinspect for gtk-1.2 (or so I believe, I'm not much of
++> > > a GTK programmer).  I used glade to insert a viewport as a parent of the
++> > > hbox1 widget, which seems to cure GTK's complaints.  I also changed a
++> > > few instances of gtk_signal_connect_object to gtk_signal_connect to fix
++> > > the problem with right-clicking on words and choosing "Search for ..."
++> > > or "Define ...".  Finally, I changed a few #include <strings.h> to
++> > > #include <string.h> to fix a few compiler warnings.  All in all, it
++> > > seems to run well with these changes.  Patch attached.
++> > > 
++> > > Regards,
++> > >   Rene H. Larsen
++
++-- 
++       /'"`\  zzzZ  | My PGP Public Key is available at:
++      ( - - )       | <http://home1.inet.tele.dk/renehl/>
++--oooO--(_)--Oooo------------------------------------------ 
++ Don't ya just hate it when there's not enough room to fin 
++
++---1463811840-1287880409-927120345=:8738
++Content-Type: APPLICATION/octet-stream; name="wordinspect-0.1a-gtk1.2fix-2.diff.gz"
++Content-Transfer-Encoding: BASE64
++Content-ID: <Pine.LNX.4.10.9905191525450.8738@renehl.ournet.dk>
++Content-Description: 
++Content-Disposition: attachment; filename="wordinspect-0.1a-gtk1.2fix-2.diff.gz"
++
++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
++---1463811840-1287880409-927120345=:8738--
++
+--- wordinspect-0.1a.orig/debian/menu
++++ wordinspect-0.1a/debian/menu
+@@ -0,0 +1,4 @@
++?package(wordinspect):needs="x11" section="Apps/Text" \
++	title="Dict Client" \
++	longtitle="GTK-based Dictionary Client" \
++	command="/usr/bin/wordinspect"
+--- wordinspect-0.1a.orig/debian/postinst
++++ wordinspect-0.1a/debian/postinst
+@@ -0,0 +1,27 @@
++#! /bin/sh
++
++set -e
++
++PACKAGE=wordinspect
++
++case "$1" in 
++     configure)
++      if [ -d /usr/doc -a ! -e /usr/doc/$PACKAGE -a -d /usr/share/doc/$PACKAGE ]; then
++              ln -sf ../share/doc/$PACKAGE /usr/doc/$PACKAGE
++      fi
++
++    test -x /usr/bin/update-menus && /usr/bin/update-menus || /bin/true
++
++    exit 0
++    ;;
++
++
++    abort-upgrade|abort-remove|abort-deconfigure|in-favour|removing)
++        exit 0;
++    ;;
++
++    *)
++        echo "postinst called with unknown argument \`$1'" >&2;
++        exit 0;
++    ;;
++esac
+--- wordinspect-0.1a.orig/debian/postrm
++++ wordinspect-0.1a/debian/postrm
+@@ -0,0 +1,5 @@
++#! /bin/sh
++
++set -e
++
++test -x /usr/bin/update-menus && /usr/bin/update-menus || /bin/true
+--- wordinspect-0.1a.orig/debian/prerm
++++ wordinspect-0.1a/debian/prerm
+@@ -0,0 +1,25 @@
++#! /bin/sh
++
++set -e
++
++PACKAGE=wordinspect
++
++case "$1" in
++    remove|purge|upgrade)
++if [ -L /usr/doc/$PACKAGE ]; then
++      rm -f /usr/doc/$PACKAGE
++fi
++        exit 0
++
++    ;;
++
++    abort-install|abort-upgrade|disappear)
++        exit 0
++    ;;
++
++    *)
++        echo "prerm called with unknown argument \`$1'" >&2
++        exit 0
++    ;;
++esac
++
+--- wordinspect-0.1a.orig/debian/rules
++++ wordinspect-0.1a/debian/rules
+@@ -0,0 +1,114 @@
++#! /usr/bin/make -f
++
++#   Copyright 1994-99,2001   joey@infodrom.org (Martin Schulze)
++#
++#   This program is free software; you can redistribute it and/or modify
++#   it under the terms of the GNU General Public License as published by
++#   the Free Software Foundation; version 2 dated June, 1991.
++#
++#   This program is distributed in the hope that it will be useful,
++#   but WITHOUT ANY WARRANTY; without even the implied warranty of
++#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++#   GNU General Public License for more details.
++#
++#   You should have received a copy of the GNU General Public License
++#   along with this program;  if not, write to the Free Software
++#   Foundation Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA
++
++SHELL=/bin/bash
++
++# The name and version of the source
++#
++source = $(shell grep "^Source: " debian/control|head -1|sed 's/Source: \(.*\)/\1/g')
++package = $(shell grep "^Package: " debian/control|head -1|sed 's/Package: \(.*\)/\1/g')
++version = $(shell grep "^$(source) " debian/changelog|head -1 |sed 's/.*(\(.*\)\-[^\-]*).*/\1/g')
++revision = $(shell grep "^$(source) " debian/changelog|head -1 |sed 's/.*([^\-]*\-\(.*\)).*/\1/g')
++
++installbin = install -g root -o root -m 755
++installdoc = install -g root -o root -m 644
++
++ifneq (,$(findstring debug,$(DEB_BUILD_OPTIONS)))
++CFLAGS = -g -O2 -Wall
++else
++CFLAGS = -O2 -Wall
++endif
++ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
++STRIP = strip
++else
++STRIP = echo
++endif
++
++build:
++	test -f config.cache || CFLAGS="$(CFLAGS)" ./configure --prefix=/usr
++	$(MAKE)
++	touch stamp-build
++
++clean: debclean
++	rm -f stamp-build
++	test ! -f Makefile || $(MAKE) distclean
++	rm -rf *~
++	rm -f .deps/*.P
++
++debclean:
++# Cleans debian binary directories to allow binary creation
++	rm -rf debian/tmp
++	rm -f debian/{files,substvars}
++
++binary-indep:
++# Nothing to be done here
++
++binary-arch: debclean
++	test -f stamp-build || $(MAKE) -f debian/rules build
++	$(installbin) -d debian/tmp/DEBIAN
++	chown -R root.root debian/tmp
++	chmod -R g-ws debian/tmp
++	$(installbin) -d debian/tmp/usr/share/doc/$(package)
++	$(installbin) debian/{prerm,postinst,postrm} debian/tmp/DEBIAN/
++	$(installdoc) debian/changelog debian/tmp/usr/share/doc/$(package)/changelog.Debian
++	$(installdoc) debian/copyright debian/tmp/usr/share/doc/$(package)/
++	#
++	$(installdoc) ChangeLog debian/tmp/usr/share/doc/$(package)/changelog
++	$(installdoc) README debian/tmp/usr/share/doc/$(package)/readme
++	$(installdoc) TODO debian/tmp/usr/share/doc/$(package)/todo
++	gzip -9 debian/tmp/usr/share/doc/$(package)/{changelog{,.Debian},readme,todo}
++	#
++	$(installbin) -d debian/tmp/usr/bin
++	$(installbin) wordinspect debian/tmp/usr/bin
++	$(STRIP) debian/tmp/usr/bin/wordinspect
++	#
++	$(installbin) -d debian/tmp/usr/share/man/man1
++	$(installdoc) debian/wordinspect.1 debian/tmp/usr/share/man/man1/wordinspect.1
++	gzip -9 debian/tmp/usr/share/man/man?/*
++	#
++	$(installbin) -d debian/tmp/usr/lib/menu
++	$(installdoc) debian/menu debian/tmp/usr/lib/menu/$(package)
++        #
++	dpkg-shlibdeps debian/tmp/usr/bin/wordinspect
++	dpkg-gencontrol -isp
++	dpkg --build debian/tmp ..
++
++binary: binary-indep binary-arch
++
++source diff:
++	@echo >&2 'source and diff are obsolete - use dpkg-source -b' or dsc; false
++
++dsc:
++	-test -d debian/tmp && $(MAKE) -f debian/rules clean
++	if [ ! -f ../$(source)_$(version).orig.tar.gz -a -f ../orig/$(source)_$(version).orig.tar.gz ]; \
++	then \
++	  ln -s orig/$(source)_$(version).orig.tar.gz ../$(source)_$(version).orig.tar.gz; \
++	  touch /tmp/stamp-$(source)-link; \
++	fi; \
++	cd .. && dpkg-source -b $(source)-$(version)
++	if [ -f /tmp/stamp-$(source)-link ]; then \
++	  rm ../$(source)_$(version).orig.tar.gz /tmp/stamp-$(source)-link; \
++	fi
++
++checkroot:
++	$(checkdir)
++	test root = "`whoami`"
++
++dist: binary dsc
++
++.PHONY: binary binary-arch binary-indep clean checkroot
++
+--- wordinspect-0.1a.orig/debian/wordinspect.1
++++ wordinspect-0.1a/debian/wordinspect.1
+@@ -0,0 +1,116 @@
++.\" Copyright (c) 1999  Roland Rosenfeld <roland@spinnaker.de>
++.\"               
++.\" This program is free software; you can redistribute it and/or modify
++.\" it under the terms of the GNU General Public License as published by
++.\" the Free Software Foundation; either version 2 of the License, or
++.\" (at your option) any later version.
++.\" 
++.\" This program is distributed in the hope that it will be useful,
++.\" but WITHOUT ANY WARRANTY; without even the implied warranty of
++.\" MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++.\" GNU General Public License for more details.
++.\" 
++.\" You should have received a copy of the GNU General Public License
++.\" along with this program; if not, write to the Free Software
++.\" Foundation, Inc.,59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
++.\"
++.\" This manual page is written especially for Debian Linux.
++.\"
++.TH WORDINSPECT 1 "October 1999" "Debian Project" "User Manuals"
++.SH NAME
++wordinspect \- graphical front-end to the dict program
++.SH SYNOPSIS
++.B wordinspect 
++.RB [ --help | --version ]
++.br
++.B wordinspect 
++.RB [ --dict=\fI/path/to/dict\fP ]
++.RB [ --clipboard ]
++.RB [ --search | --define ]
++.RI [ searchstring ]
++.SH DESCRIPTION
++.B wordinspect
++is a graphical front-end to the 
++.BR dict (1)
++program.  The 
++.B dict
++program allows you to search through one or more dictionary-like
++reference books for a word, then displays its definition.
++.B wordinspect
++expands that by allowing you to enter words to look up more easily,
++easily look up words that appear in the definition for another word,
++and automatically look up a word in the X Window selection.
++.PP
++Simply enter the word you want to look up, and hit Enter or the
++`Search' button.
++.B wordinspect
++will pause while it looks up the word, then pop up a new window with
++the definition if it could find it, or some suggestions if it
++couldn't.  If it can't find anything that even resembles the word you
++entered, it will display a window letting you know that, too.
++.PP
++In any 
++.B wordinspect
++window, you can right-click (button 3) on a word or phrase to get a
++menu of various ways to get more information on that word.  Currently,
++the two choices are to define the word (look it up directly), or
++search for it (pop up a search window with that word entered in it).
++
++This is especially useful for following-up on cross references,
++synonyms or antonyms that may be given with the definition.  If the
++cross reference (synonym, antonym, etc.) is a a multi-word phrase,
++select the phrase with the button 1, as if you were going to paste it
++into another window, then right-click on the selection to see the same
++menu for the entire phrase.  Spaces are treated as if the phrase were
++quoted, and newlines and punctuation are
++automatically removed from your selection, to help
++.BR dict (1)
++find it.
++.PP
++Of course, you can copy any information you'd like from the
++.B wordinspect
++window for pasting into other applications.  Like in most X
++applications, hilighting the words with the button 1 makes it the
++primary selection, and you don't have to hit anything to paste it into
++another application.
++.PP
++When you are finished reading the definition for a word, click on the
++`OK' button at the bottom to get rid of the window.  If you searched
++for a word, you can search for another one by just replacing the word
++you typed and hitting Enter or Search again.
++.B wordinspect
++won't exit until you have closed all of its windows, so you can close
++anything (including Word Finder windows) at any time.
++.SH OPTIONS
++.TP
++.B --help
++Display all options available for 
++.BR wordinspect .
++.TP
++.B --version
++Display 
++.BR wordinspect 's
++current version and copyright.
++.TP
++.B --search
++Search for the word provided on the command line [Default].
++.TP
++.B --define
++Define the word provided on the command line.
++.TP
++.B --clipboard
++Use the word currently in X's primary selection (the clipboard) as if
++it were typed on the command line.  Useful for launching from a menu
++or hot-key.
++.TP
++.BI --dict= /path/to/dict
++Use the copy of dict in
++.IR /path/to/dict .
++.SH AUTHOR
++.B wordinspect
++was written by Scott W. Gifford <sgifford@tir.com>.
++.PP
++This manual page was created by Roland Rosenfeld <roland@spinnaker.de> 
++for the Debian project (but may be used by others).
++.SH "SEE ALSO"
++.BR dict (1)
+--- wordinspect-0.1a.orig/debian/diffs/wi-0.1a-gtk1.2fix-2.diff
++++ wordinspect-0.1a/debian/diffs/wi-0.1a-gtk1.2fix-2.diff
+@@ -0,0 +1,1013 @@
++--- wordinspect-0.1a/wordinspect.glade.orig	Tue May 18 16:58:03 1999
+++++ wordinspect-0.1a/wordinspect.glade	Wed May 19 14:54:01 1999
++@@ -1,14 +1,27 @@
++ <?xml version="1.0"?>
++ <GTK-Interface>
++ 
+++<project>
+++  <name>WordInspect</name>
+++  <directory></directory>
+++  <source_directory></source_directory>
+++  <pixmaps_directory>pixmaps</pixmaps_directory>
+++  <language>C</language>
+++  <gettext_support>False</gettext_support>
+++  <use_widget_names>False</use_widget_names>
+++  <main_source_file>gladesrc.c</main_source_file>
+++  <main_header_file>gladesrc.h</main_header_file>
+++  <handler_source_file>gladesig.c</handler_source_file>
+++  <handler_header_file>gladesig.h</handler_header_file>
+++</project>
++ 
++ <widget>
++   <class>GtkWindow</class>
++   <name>winWordInspector</name>
++-  <Signal>
+++  <signal>
++     <name>destroy</name>
++     <handler>do_delwindow</handler>
++-  </Signal>
+++  </signal>
++   <title>Word Inspector</title>
++   <type>GTK_WINDOW_TOPLEVEL</type>
++   <position>GTK_WIN_POS_NONE</position>
++@@ -27,9 +40,9 @@
++       <class>GtkLabel</class>
++       <name>labelWord</name>
++       <child>
++-        <padding>0</padding>
++-        <expand>False</expand>
++-        <fill>True</fill>
+++	<padding>0</padding>
+++	<expand>False</expand>
+++	<fill>True</fill>
++       </child>
++       <label>Word Goes Here.</label>
++       <justify>GTK_JUSTIFY_CENTER</justify>
++@@ -43,9 +56,9 @@
++       <class>GtkHSeparator</class>
++       <name>hseparator1</name>
++       <child>
++-        <padding>0</padding>
++-        <expand>False</expand>
++-        <fill>True</fill>
+++	<padding>0</padding>
+++	<expand>False</expand>
+++	<fill>True</fill>
++       </child>
++       <sensitive>False</sensitive>
++     </widget>
++@@ -54,72 +67,77 @@
++       <class>GtkScrolledWindow</class>
++       <name>scrolledwindow2</name>
++       <child>
++-        <padding>0</padding>
++-        <expand>True</expand>
++-        <fill>True</fill>
+++	<padding>0</padding>
+++	<expand>True</expand>
+++	<fill>True</fill>
++       </child>
++       <width>450</width>
++       <height>282</height>
++-      <shadow_type>GTK_SHADOW_IN</shadow_type>
++       <hscrollbar_policy>GTK_POLICY_AUTOMATIC</hscrollbar_policy>
++       <vscrollbar_policy>GTK_POLICY_AUTOMATIC</vscrollbar_policy>
++       <hupdate_policy>GTK_UPDATE_CONTINUOUS</hupdate_policy>
++       <vupdate_policy>GTK_UPDATE_CONTINUOUS</vupdate_policy>
++ 
++       <widget>
++-        <class>GtkHBox</class>
++-        <name>hbox1</name>
++-        <homogeneous>False</homogeneous>
++-        <spacing>0</spacing>
++-
++-        <widget>
++-          <class>GtkText</class>
++-          <name>labelDef</name>
++-          <child>
++-            <padding>0</padding>
++-            <expand>True</expand>
++-            <fill>True</fill>
++-          </child>
++-          <can_focus>True</can_focus>
++-          <Signal>
++-            <name>button_press_event</name>
++-            <handler>on_labelDef_button_release_event</handler>
++-            <after>True</after>
++-          </Signal>
++-          <Signal>
++-            <name>button_press_event</name>
++-            <handler>on_labelDef_button_release_event_before</handler>
++-          </Signal>
++-          <editable>False</editable>
++-          <text></text>
++-        </widget>
++-
++-        <widget>
++-          <class>GtkAlignment</class>
++-          <name>alignment2</name>
++-          <child>
++-            <padding>0</padding>
++-            <expand>False</expand>
++-            <fill>True</fill>
++-          </child>
++-          <xalign>0.5</xalign>
++-          <yalign>0.5</yalign>
++-          <xscale>1</xscale>
++-          <yscale>1</yscale>
++-
++-          <widget>
++-            <class>GtkVScrollbar</class>
++-            <name>vscrollbar2</name>
++-            <can_focus>True</can_focus>
++-            <policy>GTK_UPDATE_CONTINUOUS</policy>
++-            <vvalue>0</vvalue>
++-            <vlower>0</vlower>
++-            <vupper>0</vupper>
++-            <vstep>0</vstep>
++-            <vpage>0</vpage>
++-            <vpage_size>0</vpage_size>
++-          </widget>
++-        </widget>
+++	<class>GtkViewport</class>
+++	<name>viewport1</name>
+++	<shadow_type>GTK_SHADOW_NONE</shadow_type>
+++
+++	<widget>
+++	  <class>GtkHBox</class>
+++	  <name>hbox1</name>
+++	  <homogeneous>False</homogeneous>
+++	  <spacing>0</spacing>
+++
+++	  <widget>
+++	    <class>GtkText</class>
+++	    <name>labelDef</name>
+++	    <child>
+++	      <padding>0</padding>
+++	      <expand>True</expand>
+++	      <fill>True</fill>
+++	    </child>
+++	    <can_focus>True</can_focus>
+++	    <signal>
+++	      <name>button_press_event</name>
+++	      <handler>on_labelDef_button_release_event</handler>
+++	      <after>True</after>
+++	    </signal>
+++	    <signal>
+++	      <name>button_press_event</name>
+++	      <handler>on_labelDef_button_release_event_before</handler>
+++	    </signal>
+++	    <editable>False</editable>
+++	    <text></text>
+++	  </widget>
+++
+++	  <widget>
+++	    <class>GtkAlignment</class>
+++	    <name>alignment2</name>
+++	    <child>
+++	      <padding>0</padding>
+++	      <expand>False</expand>
+++	      <fill>True</fill>
+++	    </child>
+++	    <xalign>0.5</xalign>
+++	    <yalign>0.5</yalign>
+++	    <xscale>1</xscale>
+++	    <yscale>1</yscale>
+++
+++	    <widget>
+++	      <class>GtkVScrollbar</class>
+++	      <name>vscrollbar2</name>
+++	      <can_focus>True</can_focus>
+++	      <policy>GTK_UPDATE_CONTINUOUS</policy>
+++	      <vvalue>0</vvalue>
+++	      <vlower>0</vlower>
+++	      <vupper>0</vupper>
+++	      <vstep>0</vstep>
+++	      <vpage>0</vpage>
+++	      <vpage_size>0</vpage_size>
+++	    </widget>
+++	  </widget>
+++	</widget>
++       </widget>
++     </widget>
++ 
++@@ -127,9 +145,9 @@
++       <class>GtkHSeparator</class>
++       <name>hseparator4</name>
++       <child>
++-        <padding>0</padding>
++-        <expand>False</expand>
++-        <fill>False</fill>
+++	<padding>0</padding>
+++	<expand>False</expand>
+++	<fill>False</fill>
++       </child>
++     </widget>
++ 
++@@ -137,9 +155,9 @@
++       <class>GtkButton</class>
++       <name>buttonOK</name>
++       <child>
++-        <padding>0</padding>
++-        <expand>False</expand>
++-        <fill>False</fill>
+++	<padding>0</padding>
+++	<expand>False</expand>
+++	<fill>False</fill>
++       </child>
++       <width>329</width>
++       <height>38</height>
++@@ -147,11 +165,11 @@
++       <has_default>True</has_default>
++       <can_focus>True</can_focus>
++       <has_focus>True</has_focus>
++-      <Signal>
++-        <name>clicked</name>
++-        <handler>do_quit</handler>
++-        <object>winWordInspector</object>
++-      </Signal>
+++      <signal>
+++	<name>clicked</name>
+++	<handler>do_quit</handler>
+++	<object>winWordInspector</object>
+++      </signal>
++       <label>OK</label>
++     </widget>
++   </widget>
++@@ -160,10 +178,10 @@
++ <widget>
++   <class>GtkWindow</class>
++   <name>winWordFinder</name>
++-  <Signal>
+++  <signal>
++     <name>destroy</name>
++     <handler>do_delwindow</handler>
++-  </Signal>
+++  </signal>
++   <title>Word Finder</title>
++   <type>GTK_WINDOW_TOPLEVEL</type>
++   <position>GTK_WIN_POS_NONE</position>
++@@ -172,192 +190,178 @@
++   <auto_shrink>False</auto_shrink>
++ 
++   <widget>
++-    <class>GtkVBox</class>
++-    <name>vbox3</name>
++-    <height>109</height>
+++    <class>GtkTable</class>
+++    <name>table1</name>
++     <sensitive>False</sensitive>
+++    <rows>4</rows>
+++    <columns>3</columns>
++     <homogeneous>False</homogeneous>
++-    <spacing>0</spacing>
+++    <row_spacing>0</row_spacing>
+++    <column_spacing>0</column_spacing>
++ 
++     <widget>
++-      <class>GtkTable</class>
++-      <name>table1</name>
+++      <class>GtkLabel</class>
+++      <name>label4</name>
++       <child>
++-        <padding>0</padding>
++-        <expand>True</expand>
++-        <fill>True</fill>
+++	<left_attach>0</left_attach>
+++	<right_attach>1</right_attach>
+++	<top_attach>1</top_attach>
+++	<bottom_attach>2</bottom_attach>
+++	<xpad>0</xpad>
+++	<ypad>0</ypad>
+++	<xexpand>True</xexpand>
+++	<yexpand>True</yexpand>
+++	<xshrink>False</xshrink>
+++	<yshrink>False</yshrink>
+++	<xfill>True</xfill>
+++	<yfill>True</yfill>
++       </child>
+++      <width>22</width>
++       <sensitive>False</sensitive>
++-      <rows>4</rows>
++-      <columns>3</columns>
++-      <homogeneous>False</homogeneous>
++-      <row_spacing>0</row_spacing>
++-      <column_spacing>0</column_spacing>
++-
++-      <widget>
++-        <class>GtkButton</class>
++-        <name>buttonSearch</name>
++-        <child>
++-          <left_attach>2</left_attach>
++-          <right_attach>3</right_attach>
++-          <top_attach>1</top_attach>
++-          <bottom_attach>2</bottom_attach>
++-          <xpad>0</xpad>
++-          <ypad>0</ypad>
++-          <xexpand>True</xexpand>
++-          <yexpand>True</yexpand>
++-          <xshrink>False</xshrink>
++-          <yshrink>False</yshrink>
++-          <xfill>False</xfill>
++-          <yfill>False</yfill>
++-        </child>
++-        <width>65</width>
++-        <height>33</height>
++-        <can_default>True</can_default>
++-        <has_default>True</has_default>
++-        <can_focus>True</can_focus>
++-        <Signal>
++-          <name>clicked</name>
++-          <handler>on_buttonSearch_clicked</handler>
++-          <data>entryWord</data>
++-        </Signal>
++-        <label>Search</label>
++-      </widget>
+++      <label>  </label>
+++      <justify>GTK_JUSTIFY_LEFT</justify>
+++      <xalign>0.5</xalign>
+++      <yalign>0.5</yalign>
+++      <xpad>0</xpad>
+++      <ypad>0</ypad>
+++    </widget>
++ 
++-      <widget>
++-        <class>GtkLabel</class>
++-        <name>label4</name>
++-        <child>
++-          <left_attach>0</left_attach>
++-          <right_attach>1</right_attach>
++-          <top_attach>1</top_attach>
++-          <bottom_attach>2</bottom_attach>
++-          <xpad>0</xpad>
++-          <ypad>0</ypad>
++-          <xexpand>True</xexpand>
++-          <yexpand>True</yexpand>
++-          <xshrink>False</xshrink>
++-          <yshrink>False</yshrink>
++-          <xfill>True</xfill>
++-          <yfill>True</yfill>
++-        </child>
++-        <width>22</width>
++-        <sensitive>False</sensitive>
++-        <label>  </label>
++-        <justify>GTK_JUSTIFY_LEFT</justify>
++-        <xalign>0.5</xalign>
++-        <yalign>0.5</yalign>
++-        <xpad>0</xpad>
++-        <ypad>0</ypad>
++-      </widget>
+++    <widget>
+++      <class>GtkHSeparator</class>
+++      <name>hseparator3</name>
+++      <child>
+++	<left_attach>0</left_attach>
+++	<right_attach>3</right_attach>
+++	<top_attach>2</top_attach>
+++	<bottom_attach>3</bottom_attach>
+++	<xpad>0</xpad>
+++	<ypad>0</ypad>
+++	<xexpand>True</xexpand>
+++	<yexpand>True</yexpand>
+++	<xshrink>False</xshrink>
+++	<yshrink>False</yshrink>
+++	<xfill>False</xfill>
+++	<yfill>False</yfill>
+++      </child>
+++      <height>23</height>
+++      <sensitive>False</sensitive>
+++    </widget>
++ 
++-      <widget>
++-        <class>GtkHSeparator</class>
++-        <name>hseparator3</name>
++-        <child>
++-          <left_attach>0</left_attach>
++-          <right_attach>3</right_attach>
++-          <top_attach>2</top_attach>
++-          <bottom_attach>3</bottom_attach>
++-          <xpad>0</xpad>
++-          <ypad>0</ypad>
++-          <xexpand>True</xexpand>
++-          <yexpand>True</yexpand>
++-          <xshrink>False</xshrink>
++-          <yshrink>False</yshrink>
++-          <xfill>False</xfill>
++-          <yfill>False</yfill>
++-        </child>
++-        <height>23</height>
++-        <sensitive>False</sensitive>
++-      </widget>
+++    <widget>
+++      <class>GtkLabel</class>
+++      <name>label3</name>
+++      <child>
+++	<left_attach>0</left_attach>
+++	<right_attach>3</right_attach>
+++	<top_attach>0</top_attach>
+++	<bottom_attach>1</bottom_attach>
+++	<xpad>0</xpad>
+++	<ypad>0</ypad>
+++	<xexpand>False</xexpand>
+++	<yexpand>False</yexpand>
+++	<xshrink>True</xshrink>
+++	<yshrink>True</yshrink>
+++	<xfill>True</xfill>
+++	<yfill>False</yfill>
+++      </child>
+++      <width>212</width>
+++      <height>21</height>
+++      <sensitive>False</sensitive>
+++      <label>Search For...</label>
+++      <justify>GTK_JUSTIFY_LEFT</justify>
+++      <xalign>0.5</xalign>
+++      <yalign>0.5</yalign>
+++      <xpad>0</xpad>
+++      <ypad>0</ypad>
+++    </widget>
++ 
++-      <widget>
++-        <class>GtkButton</class>
++-        <name>buttonClose</name>
++-        <child>
++-          <left_attach>0</left_attach>
++-          <right_attach>3</right_attach>
++-          <top_attach>3</top_attach>
++-          <bottom_attach>4</bottom_attach>
++-          <xpad>0</xpad>
++-          <ypad>0</ypad>
++-          <xexpand>False</xexpand>
++-          <yexpand>False</yexpand>
++-          <xshrink>False</xshrink>
++-          <yshrink>False</yshrink>
++-          <xfill>False</xfill>
++-          <yfill>False</yfill>
++-        </child>
++-        <width>104</width>
++-        <height>29</height>
++-        <can_focus>True</can_focus>
++-        <Signal>
++-          <name>clicked</name>
++-          <handler>do_quit</handler>
++-          <object>winWordFinder</object>
++-        </Signal>
++-        <label>Close</label>
++-      </widget>
+++    <widget>
+++      <class>GtkEntry</class>
+++      <name>entryWord</name>
+++      <child>
+++	<left_attach>1</left_attach>
+++	<right_attach>2</right_attach>
+++	<top_attach>1</top_attach>
+++	<bottom_attach>2</bottom_attach>
+++	<xpad>0</xpad>
+++	<ypad>0</ypad>
+++	<xexpand>False</xexpand>
+++	<yexpand>True</yexpand>
+++	<xshrink>True</xshrink>
+++	<yshrink>True</yshrink>
+++	<xfill>False</xfill>
+++	<yfill>True</yfill>
+++      </child>
+++      <can_default>True</can_default>
+++      <can_focus>True</can_focus>
+++      <has_focus>True</has_focus>
+++      <signal>
+++	<name>activate</name>
+++	<handler>on_buttonSearch_clicked</handler>
+++	<data>entryWord</data>
+++      </signal>
+++      <editable>True</editable>
+++      <text_visible>True</text_visible>
+++      <text_max_length>0</text_max_length>
+++      <text></text>
+++    </widget>
++ 
++-      <widget>
++-        <class>GtkLabel</class>
++-        <name>label3</name>
++-        <child>
++-          <left_attach>0</left_attach>
++-          <right_attach>3</right_attach>
++-          <top_attach>0</top_attach>
++-          <bottom_attach>1</bottom_attach>
++-          <xpad>0</xpad>
++-          <ypad>0</ypad>
++-          <xexpand>False</xexpand>
++-          <yexpand>False</yexpand>
++-          <xshrink>True</xshrink>
++-          <yshrink>True</yshrink>
++-          <xfill>True</xfill>
++-          <yfill>False</yfill>
++-        </child>
++-        <width>212</width>
++-        <height>21</height>
++-        <sensitive>False</sensitive>
++-        <label>Search For...</label>
++-        <justify>GTK_JUSTIFY_LEFT</justify>
++-        <xalign>0.5</xalign>
++-        <yalign>0.5</yalign>
++-        <xpad>0</xpad>
++-        <ypad>0</ypad>
++-      </widget>
+++    <widget>
+++      <class>GtkButton</class>
+++      <name>buttonSearch</name>
+++      <child>
+++	<left_attach>2</left_attach>
+++	<right_attach>3</right_attach>
+++	<top_attach>1</top_attach>
+++	<bottom_attach>2</bottom_attach>
+++	<xpad>0</xpad>
+++	<ypad>0</ypad>
+++	<xexpand>True</xexpand>
+++	<yexpand>True</yexpand>
+++	<xshrink>False</xshrink>
+++	<yshrink>False</yshrink>
+++	<xfill>False</xfill>
+++	<yfill>False</yfill>
+++      </child>
+++      <width>65</width>
+++      <height>33</height>
+++      <can_default>True</can_default>
+++      <has_default>True</has_default>
+++      <can_focus>True</can_focus>
+++      <signal>
+++	<name>clicked</name>
+++	<handler>on_buttonSearch_clicked</handler>
+++	<data>entryWord</data>
+++      </signal>
+++      <label>Search</label>
+++    </widget>
++ 
++-      <widget>
++-        <class>GtkEntry</class>
++-        <name>entryWord</name>
++-        <child>
++-          <left_attach>1</left_attach>
++-          <right_attach>2</right_attach>
++-          <top_attach>1</top_attach>
++-          <bottom_attach>2</bottom_attach>
++-          <xpad>0</xpad>
++-          <ypad>0</ypad>
++-          <xexpand>False</xexpand>
++-          <yexpand>True</yexpand>
++-          <xshrink>True</xshrink>
++-          <yshrink>True</yshrink>
++-          <xfill>False</xfill>
++-          <yfill>True</yfill>
++-        </child>
++-        <can_default>True</can_default>
++-        <can_focus>True</can_focus>
++-        <has_focus>True</has_focus>
++-        <Signal>
++-          <name>activate</name>
++-          <handler>on_buttonSearch_clicked</handler>
++-          <data>entryWord</data>
++-        </Signal>
++-        <editable>True</editable>
++-        <text_visible>True</text_visible>
++-        <text_max_length>0</text_max_length>
++-        <text></text>
++-      </widget>
+++    <widget>
+++      <class>GtkButton</class>
+++      <name>buttonClose</name>
+++      <child>
+++	<left_attach>0</left_attach>
+++	<right_attach>3</right_attach>
+++	<top_attach>3</top_attach>
+++	<bottom_attach>4</bottom_attach>
+++	<xpad>0</xpad>
+++	<ypad>2</ypad>
+++	<xexpand>False</xexpand>
+++	<yexpand>False</yexpand>
+++	<xshrink>False</xshrink>
+++	<yshrink>False</yshrink>
+++	<xfill>False</xfill>
+++	<yfill>False</yfill>
+++      </child>
+++      <width>104</width>
+++      <height>29</height>
+++      <can_focus>True</can_focus>
+++      <signal>
+++	<name>clicked</name>
+++	<handler>do_quit</handler>
+++	<object>winWordFinder</object>
+++      </signal>
+++      <label>Close</label>
++     </widget>
++   </widget>
++ </widget>
++--- wordinspect-0.1a/gladesrc.c.orig	Tue May 18 16:58:17 1999
+++++ wordinspect-0.1a/gladesrc.c	Wed May 19 14:54:01 1999
++@@ -1,4 +1,7 @@
++-/*  <PROJECT NAME>
+++/*  Note: You are free to use whatever license you want.
+++    Eventually you will be able to edit it within Glade. */
+++
+++/*  WordInspect
++  *  Copyright (C) <YEAR> <AUTHORS>
++  *
++  *  This program is free software; you can redistribute it and/or modify
++@@ -16,7 +19,16 @@
++  *  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
++ */
++ 
+++#include <sys/stat.h>
+++#include <unistd.h>
+++#include <string.h>
+++
+++#ifdef HAVE_CONFIG_H
+++#  include <config.h>
+++#endif
+++
++ #include <gtk/gtk.h>
+++#include <gdk/gdkkeysyms.h>
++ #include "gladesig.h"
++ #include "gladesrc.h"
++ 
++@@ -24,10 +36,19 @@
++ get_widget                             (GtkWidget       *widget,
++                                         gchar           *widget_name)
++ {
++-  GtkWidget *found_widget;
+++  GtkWidget *parent, *found_widget;
+++
+++  for (;;)
+++    {
+++      if (GTK_IS_MENU (widget))
+++        parent = gtk_menu_get_attach_widget (GTK_MENU (widget));
+++      else
+++        parent = widget->parent;
+++      if (parent == NULL)
+++        break;
+++      widget = parent;
+++    }
++ 
++-  if (widget->parent)
++-    widget = gtk_widget_get_toplevel (widget);
++   found_widget = (GtkWidget*) gtk_object_get_data (GTK_OBJECT (widget),
++                                                    widget_name);
++   if (!found_widget)
++@@ -36,14 +57,14 @@
++ }
++ 
++ /* This is an internally used function to set notebook tab widgets. */
++-static void
+++void
++ set_notebook_tab                       (GtkWidget       *notebook,
++                                         gint             page_num,
++                                         GtkWidget       *widget)
++ {
++   GtkNotebookPage *page;
++   GtkWidget *notebook_page;
++-  
+++
++   page = (GtkNotebookPage*) g_list_nth (GTK_NOTEBOOK (notebook)->children, page_num)->data;
++   notebook_page = page->child;
++   gtk_widget_ref (notebook_page);
++@@ -53,6 +74,85 @@
++   gtk_widget_unref (notebook_page);
++ }
++ 
+++static GList *pixmaps_directories = NULL;
+++
+++/* Use this function to set the directory containing installed pixmaps. */
+++void
+++add_pixmap_directory                   (gchar           *directory)
+++{
+++  pixmaps_directories = g_list_prepend (pixmaps_directories, g_strdup (directory));
+++}
+++
+++/* This is an internally used function to check if a pixmap file exists. */
+++#ifndef G_DIR_SEPARATOR_S
+++#define G_DIR_SEPARATOR_S "/"
+++#endif
+++gchar*
+++check_file_exists                      (gchar           *directory,
+++                                        gchar           *filename)
+++{
+++  gchar *full_filename;
+++  struct stat s;
+++  gint status;
+++
+++  full_filename = g_malloc (strlen (directory) + 1 + strlen (filename) + 1);
+++  strcpy (full_filename, directory);
+++  strcat (full_filename, G_DIR_SEPARATOR_S);
+++  strcat (full_filename, filename);
+++
+++  status = stat (full_filename, &s);
+++  if (status == 0 && S_ISREG (s.st_mode))
+++    return full_filename;
+++  g_free (full_filename);
+++  return NULL;
+++}
+++
+++/* This is an internally used function to create pixmaps. */
+++GtkWidget*
+++create_pixmap                          (GtkWidget       *widget,
+++                                        gchar           *filename)
+++{
+++  gchar *found_filename = NULL;
+++  GdkColormap *colormap;
+++  GdkPixmap *gdkpixmap;
+++  GdkBitmap *mask;
+++  GtkWidget *pixmap;
+++  GList *elem;
+++
+++  /* We first try any pixmaps directories set by the application. */
+++  elem = pixmaps_directories;
+++  while (elem)
+++    {
+++      found_filename = check_file_exists ((gchar*)elem->data, filename);
+++      if (found_filename)
+++        break;
+++      elem = elem->next;
+++    }
+++
+++  /* If we haven't found the pixmap, try the source directory. */
+++  if (!found_filename)
+++    {
+++      found_filename = check_file_exists ("pixmaps", filename);
+++    }
+++
+++  if (!found_filename)
+++    {
+++      g_print ("Couldn't find pixmap file: %s", filename);
+++      return NULL;
+++    }
+++
+++  colormap = gtk_widget_get_colormap (widget);
+++  gdkpixmap = gdk_pixmap_colormap_create_from_xpm (NULL, colormap, &mask,
+++                                                   NULL, found_filename);
+++  g_free (found_filename);
+++  if (gdkpixmap == NULL)
+++    return NULL;
+++  pixmap = gtk_pixmap_new (gdkpixmap, mask);
+++  gdk_pixmap_unref (gdkpixmap);
+++  gdk_bitmap_unref (mask);
+++  return pixmap;
+++}
+++
++ GtkWidget*
++ create_winWordInspector ()
++ {
++@@ -61,6 +161,7 @@
++   GtkWidget *labelWord;
++   GtkWidget *hseparator1;
++   GtkWidget *scrolledwindow2;
+++  GtkWidget *viewport1;
++   GtkWidget *hbox1;
++   GtkWidget *labelDef;
++   GtkWidget *alignment2;
++@@ -99,10 +200,16 @@
++   gtk_widget_set_usize (scrolledwindow2, 450, 282);
++   gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolledwindow2), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
++ 
+++  viewport1 = gtk_viewport_new (NULL, NULL);
+++  gtk_object_set_data (GTK_OBJECT (winWordInspector), "viewport1", viewport1);
+++  gtk_widget_show (viewport1);
+++  gtk_container_add (GTK_CONTAINER (scrolledwindow2), viewport1);
+++  gtk_viewport_set_shadow_type (GTK_VIEWPORT (viewport1), GTK_SHADOW_NONE);
+++
++   hbox1 = gtk_hbox_new (FALSE, 0);
++   gtk_object_set_data (GTK_OBJECT (winWordInspector), "hbox1", hbox1);
++   gtk_widget_show (hbox1);
++-  gtk_container_add (GTK_CONTAINER (scrolledwindow2), hbox1);
+++  gtk_container_add (GTK_CONTAINER (viewport1), hbox1);
++ 
++   labelDef = gtk_text_new (NULL, NULL);
++   gtk_object_set_data (GTK_OBJECT (winWordInspector), "labelDef", labelDef);
++@@ -124,6 +231,7 @@
++   gtk_object_set_data (GTK_OBJECT (winWordInspector), "vscrollbar2", vscrollbar2);
++   gtk_widget_show (vscrollbar2);
++   gtk_container_add (GTK_CONTAINER (alignment2), vscrollbar2);
+++  GTK_WIDGET_SET_FLAGS (vscrollbar2, GTK_CAN_FOCUS);
++ 
++   hseparator4 = gtk_hseparator_new ();
++   gtk_object_set_data (GTK_OBJECT (winWordInspector), "hseparator4", hseparator4);
++@@ -149,14 +257,13 @@
++ create_winWordFinder ()
++ {
++   GtkWidget *winWordFinder;
++-  GtkWidget *vbox3;
++   GtkWidget *table1;
++-  GtkWidget *entryWord;
++-  GtkWidget *label3;
++-  GtkWidget *buttonClose;
++-  GtkWidget *hseparator3;
++   GtkWidget *label4;
+++  GtkWidget *hseparator3;
+++  GtkWidget *label3;
+++  GtkWidget *entryWord;
++   GtkWidget *buttonSearch;
+++  GtkWidget *buttonClose;
++ 
++   winWordFinder = gtk_window_new (GTK_WINDOW_TOPLEVEL);
++   gtk_object_set_data (GTK_OBJECT (winWordFinder), "winWordFinder", winWordFinder);
++@@ -165,77 +272,70 @@
++                       NULL);
++   gtk_window_set_title (GTK_WINDOW (winWordFinder), "Word Finder");
++ 
++-  vbox3 = gtk_vbox_new (FALSE, 0);
++-  gtk_object_set_data (GTK_OBJECT (winWordFinder), "vbox3", vbox3);
++-  gtk_widget_show (vbox3);
++-  gtk_container_add (GTK_CONTAINER (winWordFinder), vbox3);
++-  gtk_widget_set_usize (vbox3, -1, 109);
++-  gtk_widget_set_sensitive (vbox3, FALSE);
++-
++   table1 = gtk_table_new (4, 3, FALSE);
++   gtk_object_set_data (GTK_OBJECT (winWordFinder), "table1", table1);
++   gtk_widget_show (table1);
++-  gtk_box_pack_start (GTK_BOX (vbox3), table1, TRUE, TRUE, 0);
+++  gtk_container_add (GTK_CONTAINER (winWordFinder), table1);
++   gtk_widget_set_sensitive (table1, FALSE);
++ 
++-  entryWord = gtk_entry_new ();
++-  gtk_object_set_data (GTK_OBJECT (winWordFinder), "entryWord", entryWord);
++-  gtk_widget_show (entryWord);
++-  gtk_table_attach (GTK_TABLE (table1), entryWord, 1, 2, 1, 2,
++-                    GTK_SHRINK, GTK_EXPAND | GTK_SHRINK | GTK_FILL, 0, 0);
++-  GTK_WIDGET_SET_FLAGS (entryWord, GTK_CAN_DEFAULT);
++-  gtk_widget_grab_focus (entryWord);
++-  gtk_signal_connect (GTK_OBJECT (entryWord), "activate",
++-                      GTK_SIGNAL_FUNC (on_buttonSearch_clicked),
++-                      entryWord);
+++  label4 = gtk_label_new ("  ");
+++  gtk_object_set_data (GTK_OBJECT (winWordFinder), "label4", label4);
+++  gtk_widget_show (label4);
+++  gtk_table_attach (GTK_TABLE (table1), label4, 0, 1, 1, 2,
+++                    (GtkAttachOptions) GTK_EXPAND | GTK_FILL, (GtkAttachOptions) GTK_EXPAND | GTK_FILL, 0, 0);
+++  gtk_widget_set_usize (label4, 22, -2);
+++  gtk_widget_set_sensitive (label4, FALSE);
+++  gtk_label_set_justify (GTK_LABEL (label4), GTK_JUSTIFY_LEFT);
+++
+++  hseparator3 = gtk_hseparator_new ();
+++  gtk_object_set_data (GTK_OBJECT (winWordFinder), "hseparator3", hseparator3);
+++  gtk_widget_show (hseparator3);
+++  gtk_table_attach (GTK_TABLE (table1), hseparator3, 0, 3, 2, 3,
+++                    (GtkAttachOptions) GTK_EXPAND, (GtkAttachOptions) GTK_EXPAND, 0, 0);
+++  gtk_widget_set_usize (hseparator3, -2, 23);
+++  gtk_widget_set_sensitive (hseparator3, FALSE);
++ 
++   label3 = gtk_label_new ("Search For...");
++   gtk_object_set_data (GTK_OBJECT (winWordFinder), "label3", label3);
++   gtk_widget_show (label3);
++   gtk_table_attach (GTK_TABLE (table1), label3, 0, 3, 0, 1,
++-                    GTK_SHRINK | GTK_FILL, GTK_SHRINK, 0, 0);
+++                    (GtkAttachOptions) GTK_SHRINK | GTK_FILL, (GtkAttachOptions) GTK_SHRINK, 0, 0);
++   gtk_widget_set_usize (label3, 212, 21);
++   gtk_widget_set_sensitive (label3, FALSE);
++   gtk_label_set_justify (GTK_LABEL (label3), GTK_JUSTIFY_LEFT);
++ 
++-  buttonClose = gtk_button_new_with_label ("Close");
++-  gtk_object_set_data (GTK_OBJECT (winWordFinder), "buttonClose", buttonClose);
++-  gtk_widget_show (buttonClose);
++-  gtk_table_attach (GTK_TABLE (table1), buttonClose, 0, 3, 3, 4,
++-                    0, 0, 0, 0);
++-  gtk_widget_set_usize (buttonClose, 104, 29);
++-  gtk_signal_connect_object (GTK_OBJECT (buttonClose), "clicked",
++-                             GTK_SIGNAL_FUNC (do_quit),
++-                             GTK_OBJECT (winWordFinder));
++-
++-  hseparator3 = gtk_hseparator_new ();
++-  gtk_object_set_data (GTK_OBJECT (winWordFinder), "hseparator3", hseparator3);
++-  gtk_widget_show (hseparator3);
++-  gtk_table_attach (GTK_TABLE (table1), hseparator3, 0, 3, 2, 3,
++-                    GTK_EXPAND, GTK_EXPAND, 0, 0);
++-  gtk_widget_set_usize (hseparator3, -1, 23);
++-  gtk_widget_set_sensitive (hseparator3, FALSE);
++-
++-  label4 = gtk_label_new ("  ");
++-  gtk_object_set_data (GTK_OBJECT (winWordFinder), "label4", label4);
++-  gtk_widget_show (label4);
++-  gtk_table_attach (GTK_TABLE (table1), label4, 0, 1, 1, 2,
++-                    GTK_EXPAND | GTK_FILL, GTK_EXPAND | GTK_FILL, 0, 0);
++-  gtk_widget_set_usize (label4, 22, -1);
++-  gtk_widget_set_sensitive (label4, FALSE);
++-  gtk_label_set_justify (GTK_LABEL (label4), GTK_JUSTIFY_LEFT);
+++  entryWord = gtk_entry_new ();
+++  gtk_object_set_data (GTK_OBJECT (winWordFinder), "entryWord", entryWord);
+++  gtk_widget_show (entryWord);
+++  gtk_table_attach (GTK_TABLE (table1), entryWord, 1, 2, 1, 2,
+++                    (GtkAttachOptions) GTK_SHRINK, (GtkAttachOptions) GTK_EXPAND | GTK_SHRINK | GTK_FILL, 0, 0);
+++  GTK_WIDGET_SET_FLAGS (entryWord, GTK_CAN_DEFAULT);
+++  gtk_widget_grab_focus (entryWord);
+++  gtk_signal_connect (GTK_OBJECT (entryWord), "activate",
+++                      GTK_SIGNAL_FUNC (on_buttonSearch_clicked),
+++                      entryWord);
++ 
++   buttonSearch = gtk_button_new_with_label ("Search");
++   gtk_object_set_data (GTK_OBJECT (winWordFinder), "buttonSearch", buttonSearch);
++   gtk_widget_show (buttonSearch);
++   gtk_table_attach (GTK_TABLE (table1), buttonSearch, 2, 3, 1, 2,
++-                    GTK_EXPAND, GTK_EXPAND, 0, 0);
+++                    (GtkAttachOptions) GTK_EXPAND, (GtkAttachOptions) GTK_EXPAND, 0, 0);
++   gtk_widget_set_usize (buttonSearch, 65, 33);
++   GTK_WIDGET_SET_FLAGS (buttonSearch, GTK_CAN_DEFAULT);
++   gtk_widget_grab_default (buttonSearch);
++   gtk_signal_connect (GTK_OBJECT (buttonSearch), "clicked",
++                       GTK_SIGNAL_FUNC (on_buttonSearch_clicked),
++                       entryWord);
+++
+++  buttonClose = gtk_button_new_with_label ("Close");
+++  gtk_object_set_data (GTK_OBJECT (winWordFinder), "buttonClose", buttonClose);
+++  gtk_widget_show (buttonClose);
+++  gtk_table_attach (GTK_TABLE (table1), buttonClose, 0, 3, 3, 4,
+++                    (GtkAttachOptions) 0, (GtkAttachOptions) 0, 0, 2);
+++  gtk_widget_set_usize (buttonClose, 104, 29);
+++  gtk_signal_connect_object (GTK_OBJECT (buttonClose), "clicked",
+++                             GTK_SIGNAL_FUNC (do_quit),
+++                             GTK_OBJECT (winWordFinder));
++ 
++   return winWordFinder;
++ }
++--- wordinspect-0.1a/gladesig.c.orig	Tue May 18 16:58:35 1999
+++++ wordinspect-0.1a/gladesig.c	Tue May 18 17:03:34 1999
++@@ -475,14 +475,14 @@
++   /* How can we avoid the memory leak in the signal_connects below? */
++   menu_item=gtk_menu_item_new_with_label(menu_word);
++   gtk_menu_append(GTK_MENU(root_menu),menu_item);
++-  gtk_signal_connect_object(GTK_OBJECT(menu_item),"activate",
+++  gtk_signal_connect(GTK_OBJECT(menu_item),"activate",
++                             GTK_SIGNAL_FUNC(do_define),(gpointer) safe_strdup(word));
++   gtk_widget_show(menu_item);
++   
++   sprintf(menu_word,"Search for '%s'",word);
++   menu_item=gtk_menu_item_new_with_label(menu_word);
++   gtk_menu_append(GTK_MENU(root_menu),menu_item);
++-  gtk_signal_connect_object(GTK_OBJECT(menu_item),"activate",
+++  gtk_signal_connect(GTK_OBJECT(menu_item),"activate",
++                             GTK_SIGNAL_FUNC(do_find),(gpointer) safe_strdup(word));
++   gtk_widget_show(menu_item);
++   
++--- wordinspect-0.1a/utils.c.orig	Wed May 19 13:49:04 1999
+++++ wordinspect-0.1a/utils.c	Tue May 18 17:14:42 1999
++@@ -25,7 +25,7 @@
++ 
++ #include <stdio.h>
++ #include <stdlib.h>
++-#include <strings.h>
+++#include <string.h>
++ #include <stdarg.h>
++ #include "utils.h"
++ 
++--- wordinspect-0.1a/dict.c.orig	Wed May 19 15:00:09 1999
+++++ wordinspect-0.1a/dict.c	Tue May 18 17:16:02 1999
++@@ -27,7 +27,7 @@
++ #include <unistd.h>
++ #include <sys/types.h>
++ #include <sys/wait.h>
++-#include <strings.h>
+++#include <string.h>
++ #include <gtk/gtk.h>
++ #include <stdio.h>
++ 
++--- wordinspect-0.1a/gladesrc.h.orig	Wed May 19 13:50:28 1999
+++++ wordinspect-0.1a/gladesrc.h	Wed May 19 14:54:01 1999
++@@ -1,4 +1,7 @@
++-/*  <PROJECT NAME>
+++/*  Note: You are free to use whatever license you want.
+++    Eventually you will be able to edit it within Glade. */
+++
+++/*  WordInspect
++  *  Copyright (C) <YEAR> <AUTHORS>
++  *
++  *  This program is free software; you can redistribute it and/or modify
++@@ -16,6 +19,8 @@
++  *  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
++ */
++ 
+++#include <gtk/gtk.h>
+++
++ /*
++  * This function returns a widget in a component created by Glade.
++  * Call it with the toplevel widget in the component (i.e. a window/dialog),
++@@ -25,6 +30,25 @@
++ GtkWidget*
++ get_widget                             (GtkWidget       *widget,
++                                         gchar           *widget_name);
+++
+++
+++ /*
+++  * This is an internally used function for setting notebook tabs. It is only
+++  * included in this header file so you don't get compilation warnings
+++  */
+++void
+++set_notebook_tab                       (GtkWidget       *notebook,
+++                                        gint             page_num,
+++                                        GtkWidget       *widget);
+++
+++/* Use this function to set the directory containing installed pixmaps. */
+++void
+++add_pixmap_directory                   (gchar           *directory);
+++
+++/* This is an internally used function to create pixmaps. */
+++GtkWidget*
+++create_pixmap                          (GtkWidget       *widget,
+++                                        gchar           *filename);
++ 
++ GtkWidget* create_winWordInspector (void);
++ GtkWidget* create_winWordFinder (void);
+--- wordinspect-0.1a.orig/debian/diffs/wi-0.1a-gtk1.2fix-2_msg
++++ wordinspect-0.1a/debian/diffs/wi-0.1a-gtk1.2fix-2_msg
+@@ -0,0 +1,241 @@
++From renehl@post1.tele.dk Wed May 19 10:49:33 1999
++X-From-Line: bob Wed May 19 10:33:32 1999
++Received: from mail.flinet.com
++	by localhost with POP3 (fetchmail-5.0.1)
++	for bob@localhost (single-drop); Wed, 19 May 1999 10:33:31 -0400 (EDT)
++Received: from aix1.inet.tele.dk (aix1.inet.tele.dk [193.162.146.9])
++	by shell.flinet.com (8.9.3/8.9.1) with ESMTP id JAA13010
++	for <hilliard@flinet.com>; Wed, 19 May 1999 09:37:07 -0400 (EDT)
++Received: from izzlazz.ournet.dk (mail@ip181.ronnxr1.ras.tele.dk [195.249.54.181])
++	by aix1.inet.tele.dk (8.9.2/8.9.2) with ESMTP id PAA04824;
++	Wed, 19 May 1999 15:26:45 +0200
++Received: from renehl.ournet.dk [192.168.0.1] (mail)
++	by izzlazz.ournet.dk with esmtp (Exim 2.11 #1 (Debian))
++	id 10k6Lx-0003Or-00; Wed, 19 May 1999 15:25:45 +0200
++Received: from renehl by renehl.ournet.dk with local-esmtp (Exim 2.11 #1 (Debian))
++	id 10k6Lx-0002HI-00; Wed, 19 May 1999 15:25:45 +0200
++Date: Wed, 19 May 1999 15:25:45 +0200 (CEST)
++From: Rene Hojbjerg Larsen <renehl@post1.tele.dk>
++To: Scott Gifford <sgifford@tir.com>
++cc: Bob Hilliard <hilliard@flinet.com>
++Subject: Re: wordinspect in potato [patch]
++In-Reply-To: <m3ogjhlcdo.fsf@sgifford.tir.com>
++Message-ID: <Pine.LNX.4.10.9905191513180.8738-101000@renehl.ournet.dk>
++MIME-Version: 1.0
++Content-Type: MULTIPART/MIXED; BOUNDARY="-1463811840-1287880409-927120345=:8738"
++X-UIDL: B2,e9Fi<e9pBd!!nF#!!
++Lines: 208
++Xref: bobspc.flinet.com misc:2256
++X-Gnus-Article-Number: 2256   Wed May 19 10:35:16 1999
++Status: RO
++
++  This message is in MIME format.  The first part should be readable text,
++  while the remaining parts are likely unreadable without MIME-aware tools.
++  Send mail to mime@docserver.cac.washington.edu for more info.
++
++---1463811840-1287880409-927120345=:8738
++Content-Type: TEXT/PLAIN; charset=US-ASCII
++
++On 19 May 1999, Scott Gifford wrote:
++
++> Thanks Rene, that was the same fix I was going to make.  I'll apply
++> your patch and incorporate it into the official release.
++
++Don't apply my first patch!  It has a nasty bug: whenever you press the
++Search button, the program segfaults.  This has been fixed in my second
++patch (attached) by rearranging the widgets so that the entryWord widget
++is initialized before the buttonSearch widget.
++
++I also removed the vbox3 widget, as it was unnecessary.  The only
++remaining problem that I have found is this complaint when switching GTK
++themes using the Gnome control panel:
++
++Gdk-Message: Got event for unknown window: 0x5800001
++
++Gdk-Message: Got event for unknown window: 0x5800001
++
++I've no idea what to do about this.  Besides, it is no big deal since
++the theme is successfully changed anyway.
++
++HTH.
++
++> -----Scott.
++> 
++> Bob Hilliard <hilliard@flinet.com> writes:
++> 
++> >      Thanks a lot for this patch.  I haven't had a chance to try it
++> > yet, but if I have the same results you did, I'll release it for
++> > Debian RSN.  Thanks again.
++> > 
++> >      Scott - I hope this helps your nex release.
++> > 
++> > Rene Hojbjerg Larsen <renehl@post1.tele.dk> writes:
++> > 
++> > > Hi Bob,
++> > > 
++> > > I've fixed up wordinspect for gtk-1.2 (or so I believe, I'm not much of
++> > > a GTK programmer).  I used glade to insert a viewport as a parent of the
++> > > hbox1 widget, which seems to cure GTK's complaints.  I also changed a
++> > > few instances of gtk_signal_connect_object to gtk_signal_connect to fix
++> > > the problem with right-clicking on words and choosing "Search for ..."
++> > > or "Define ...".  Finally, I changed a few #include <strings.h> to
++> > > #include <string.h> to fix a few compiler warnings.  All in all, it
++> > > seems to run well with these changes.  Patch attached.
++> > > 
++> > > Regards,
++> > >   Rene H. Larsen
++
++-- 
++       /'"`\  zzzZ  | My PGP Public Key is available at:
++      ( - - )       | <http://home1.inet.tele.dk/renehl/>
++--oooO--(_)--Oooo------------------------------------------ 
++ Don't ya just hate it when there's not enough room to fin 
++
++---1463811840-1287880409-927120345=:8738
++Content-Type: APPLICATION/octet-stream; name="wordinspect-0.1a-gtk1.2fix-2.diff.gz"
++Content-Transfer-Encoding: BASE64
++Content-ID: <Pine.LNX.4.10.9905191525450.8738@renehl.ournet.dk>
++Content-Description: 
++Content-Disposition: attachment; filename="wordinspect-0.1a-gtk1.2fix-2.diff.gz"
++
++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
++---1463811840-1287880409-927120345=:8738--
++
++
++
++
+--- wordinspect-0.1a.orig/debian/diffs/wi-0.1a-gtk1.2fix_msg
++++ wordinspect-0.1a/debian/diffs/wi-0.1a-gtk1.2fix_msg
+@@ -0,0 +1,39 @@
++Date: Tue, 18 May 1999 17:21:24 +0200 (CEST)
++From: Rene Hojbjerg Larsen <renehl@post1.tele.dk>
++To: Bob Hilliard <hilliard@flinet.com>
++Subject: wordinspect in potato [patch]
++Message-ID: <Pine.LNX.4.10.9905181709450.26101-101000@renehl.ournet.dk>
++MIME-Version: 1.0
++Content-Type: MULTIPART/MIXED; BOUNDARY="-1463811840-167142029-927040884=:26101"
++X-UIDL: Xa0e9!7Oe9:I$e9\=md9
++Lines: 160
++Xref: bobspc.flinet.com misc:2238
++X-Gnus-Article-Number: 2238   Tue May 18 17:10:42 1999
++Status: RO
++
++  This message is in MIME format.  The first part should be readable text,
++  while the remaining parts are likely unreadable without MIME-aware tools.
++  Send mail to mime@docserver.cac.washington.edu for more info.
++
++---1463811840-167142029-927040884=:26101
++Content-Type: TEXT/PLAIN; charset=US-ASCII
++
++Hi Bob,
++
++I've fixed up wordinspect for gtk-1.2 (or so I believe, I'm not much of
++a GTK programmer).  I used glade to insert a viewport as a parent of the
++hbox1 widget, which seems to cure GTK's complaints.  I also changed a
++few instances of gtk_signal_connect_object to gtk_signal_connect to fix
++the problem with right-clicking on words and choosing "Search for ..."
++or "Define ...".  Finally, I changed a few #include <strings.h> to
++#include <string.h> to fix a few compiler warnings.  All in all, it
++seems to run well with these changes.  Patch attached.
++
++Regards,
++  Rene H. Larsen
++-- 
++       /'"`\  zzzZ  | My PGP Public Key is available at:
++      ( - - )       | <http://home1.inet.tele.dk/renehl/>
++--oooO--(_)--Oooo------------------------------------------ 
++ Don't ya just hate it when there's not enough room to fin 
++
