@@ -28,7 +28,7 @@ word, and automatically look up a word in the X Window selection.
 Word Inspector jest graficzn± nak³adk± na program "dict". Program dict
 pozwala na poszukiwanie s³owa w jednym b±d¼ wielu s³ownikach, po czym
 wy¶wietla jego definicjê. Word Inspector rozszerza te mo¿liwo¶ci,
-pozwajaj±c ³atwiej wyszukiwaæ s³owa, sprawdzaæ s³owa znajduj±ce siê w
+pozwalaj±c ³atwiej wyszukiwaæ s³owa, sprawdzaæ s³owa znajduj±ce siê w
 definicji innego s³owa, czy automatycznie pobieraæ s³owa ze schowka X
 Window.
 
