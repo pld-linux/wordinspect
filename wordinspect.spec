@@ -6,6 +6,7 @@ Release:	2
 License:	GPL v2
 Group:		Applications/Dictionaries
 Source0:	http://www.suspectclass.com/~sgifford/wordinspect/files/%{name}-%{version}.tar.gz
+# Source0-md5:	2c7505e5360b36f30afcb04cf9710ecf
 Patch0:		%{name}_0.1a-8.diff
 URL:		http://www.tir.com/~sgifford/wordinspect/
 BuildRequires:	autoconf
