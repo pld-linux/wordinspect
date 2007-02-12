@@ -1,5 +1,5 @@
 Summary:	GTK+ frontend for dict
-Summary(pl):	Nak³adka do dict w GTK+
+Summary(pl.UTF-8):   NakÅ‚adka do dict w GTK+
 Name:		wordinspect
 Version:	0.1a
 Release:	2
@@ -26,12 +26,12 @@ Inspector expands that by allowing you to enter words to look up more
 easily, easily look up words that appear in the definition for another
 word, and automatically look up a word in the X Window selection.
 
-%description -l pl
-Word Inspector jest graficzn± nak³adk± na program "dict". Program dict
-pozwala na poszukiwanie s³owa w jednym b±d¼ wielu s³ownikach, po czym
-wy¶wietla jego definicjê. Word Inspector rozszerza te mo¿liwo¶ci,
-pozwalaj±c ³atwiej wyszukiwaæ s³owa, sprawdzaæ s³owa znajduj±ce siê w
-definicji innego s³owa, czy automatycznie pobieraæ s³owa ze schowka X
+%description -l pl.UTF-8
+Word Inspector jest graficznÄ… nakÅ‚adkÄ… na program "dict". Program dict
+pozwala na poszukiwanie sÅ‚owa w jednym bÄ…dÅº wielu sÅ‚ownikach, po czym
+wyÅ›wietla jego definicjÄ™. Word Inspector rozszerza te moÅ¼liwoÅ›ci,
+pozwalajÄ…c Å‚atwiej wyszukiwaÄ‡ sÅ‚owa, sprawdzaÄ‡ sÅ‚owa znajdujÄ…ce siÄ™ w
+definicji innego sÅ‚owa, czy automatycznie pobieraÄ‡ sÅ‚owa ze schowka X
 Window.
 
 %prep
