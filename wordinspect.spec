@@ -1,5 +1,5 @@
 Summary:	GTK+ frontend for dict
-Summary(pl.UTF-8):   Nakładka do dict w GTK+
+Summary(pl.UTF-8):	Nakładka do dict w GTK+
 Name:		wordinspect
 Version:	0.1a
 Release:	2
